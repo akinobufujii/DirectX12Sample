@@ -48,6 +48,7 @@ IDXGISwapChain*				g_pGISwapChain;										// GIスワップチェーン
 ID3D12PipelineState*		g_pPipelineState;									// パイプラインステート
 ID3D12DescriptorHeap*		g_pDescripterHeapArray[DESCRIPTOR_HEAP_TYPE_MAX];	// ディスクリプタヒープ配列
 ID3D12GraphicsCommandList*	g_pGraphicsCommandList;								// 描画コマンドリスト
+ID3D12RootSignature*		g_pRootSignature;									// ルートシグニチャ
 
 ID3D12Resource*				g_pBackBufferResource;								// バックバッファのリソース
 D3D12_CPU_DESCRIPTOR_HANDLE g_hBackBufferRTV;									// バックバッファレンダーターゲットビュー
@@ -125,130 +126,6 @@ bool compileShaderFlomFile(LPCWSTR pFileName, LPCSTR pEntrypoint, LPCSTR pTarget
 
 	// コンパイル成功
 	return true;
-}
-
-// シェーダ読み込み
-void loadShader()
-{	
-	// 頂点シェーダコンパイル
-	if (compileShaderFlomFile(L"VertexShader.hlsl", "main", "vs_5_0", &g_pVSBlob) == false) 
-	{
-		showErrorMessage(E_FAIL, TEXT("頂点シェーダコンパイル失敗"));
-	}
-
-	// ピクセルシェーダコンパイル
-	if (compileShaderFlomFile(L"PixelShader.hlsl", "main", "ps_5_0", &g_pPSBlob) == false)
-	{
-		showErrorMessage(E_FAIL, TEXT("頂点シェーダコンパイル失敗"));
-	}
-	
-	UINT numElements = ARRAYSIZE(INPUT_LAYOUT);
-
-
-#if 0
-	// 空のルートシグニチャ作成
-	ID3D12RootSignature* mRootSignature;
-	ID3DBlob* pOutBlob, pErrorBlob;
-	D3D12_ROOT_SIGNATURE descRootSignature = D3D12_ROOT_SIGNATURE();
-	descRootSignature.Flags = D3D12_ROOT_SIGNATURE_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
-	ThrowIfFailed(D3D12SerializeRootSignature(&descRootSignature, D3D_ROOT_SIGNATURE_V1, pOutBlob.GetAddressOf(), pErrorBlob.GetAddressOf()));
-	ThrowIfFailed(mDevice->CreateRootSignature(pOutBlob->GetBufferPointer(), pOutBlob->GetBufferSize(), __uuidof(ID3D12RootSignature), (void**)mRootSignature.GetAddressOf()));
-
-	// create a PSO description
-	D3D12_GRAPHICS_PIPELINE_STATE_DESC descPso;
-	ZeroMemory(&descPso, sizeof(descPso));
-	descPso.InputLayout = { layout, numElements };
-	descPso.pRootSignature = mRootSignature.Get();
-	descPso.VS = { reinterpret_cast<BYTE*>(blobShaderVert->GetBufferPointer()), blobShaderVert->GetBufferSize() };
-	descPso.PS = { reinterpret_cast<BYTE*>(blobShaderPixel->GetBufferPointer()), blobShaderPixel->GetBufferSize() };
-	descPso.RasterizerState = CD3D12_RASTERIZER_DESC(D3D12_DEFAULT);
-	descPso.BlendState = CD3D12_BLEND_DESC(D3D12_DEFAULT);
-	descPso.DepthStencilState.DepthEnable = FALSE;
-	descPso.DepthStencilState.StencilEnable = FALSE;
-	descPso.SampleMask = UINT_MAX;
-	descPso.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-	descPso.NumRenderTargets = 1;
-	descPso.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
-	descPso.SampleDesc.Count = 1;
-
-	// create the actual PSO
-	ThrowIfFailed(mDevice->CreateGraphicsPipelineState(&descPso, mPSO.GetAddressOf()));
-
-	// create descriptor heap
-	D3D12_DESCRIPTOR_HEAP_DESC descHeap = {};
-	descHeap.NumDescriptors = 1;
-	descHeap.Type = D3D12_RTV_DESCRIPTOR_HEAP;
-	descHeap.Flags = D3D12_DESCRIPTOR_HEAP_NONE;
-	ThrowIfFailed(mDevice->CreateDescriptorHeap(&descHeap, __uuidof(ID3D12DescriptorHeap), (void**)mDescriptorHeap.GetAddressOf()));
-
-	// create command list
-	ThrowIfFailed(mDevice->CreateCommandList(D3D12_COMMAND_LIST_TYPE_DIRECT, mCommandAllocator.Get(), mPSO.Get(), IID_PPV_ARGS(mCommandList.GetAddressOf())));
-
-	// create backbuffer/rendertarget
-	ThrowIfFailed(mSwapChain->GetBuffer(0, __uuidof(ID3D12Resource), (LPVOID*)mRenderTarget.GetAddressOf()));
-	mDevice->CreateRenderTargetView(mRenderTarget.Get(), nullptr, mDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
-
-	// set the viewport
-	mViewPort =
-	{
-		0.0f,
-		0.0f,
-		static_cast<float>(mWidth),
-		static_cast<float>(mHeight),
-		0.0f,
-		1.0f
-	};
-
-	// create scissor rectangle
-	mRectScissor = { 0, 0, mWidth, mHeight };
-
-	// create geometry for a triangle
-	VERTEX triangleVerts[] =
-	{
-		{ 0.0f, 0.5f, 0.0f,{ 1.0f, 0.0f, 0.0f, 1.0f } },
-		{ 0.45f, -0.5, 0.0f,{ 0.0f, 1.0f, 0.0f, 1.0f } },
-		{ -0.45f, -0.5f, 0.0f,{ 0.0f, 0.0f, 1.0f, 1.0f } }
-	};
-
-	// actually create the vert buffer
-	// Note: using upload heaps to transfer static data like vert buffers is not recommended.
-	// Every time the GPU needs it, the upload heap will be marshalled over.  Please read up on Default Heap usage.
-	// An upload heap is used here for code simplicity and because there are very few verts to actually transfer
-	ThrowIfFailed(mDevice->CreateCommittedResource(
-		&CD3D12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
-		D3D12_HEAP_MISC_NONE,
-		&CD3D12_RESOURCE_DESC::Buffer(3 * sizeof(VERTEX)),
-		D3D12_RESOURCE_USAGE_GENERIC_READ,
-		nullptr,    // Clear value
-		IID_PPV_ARGS(mBufVerts.GetAddressOf())));
-
-	// copy the triangle data to the vertex buffer
-	UINT8* dataBegin;
-	mBufVerts->Map(0, nullptr, reinterpret_cast<void**>(&dataBegin));
-	memcpy(dataBegin, triangleVerts, sizeof(triangleVerts));
-	mBufVerts->Unmap(0, nullptr);
-
-	// create vertex buffer view
-	mDescViewBufVert.BufferLocation = mBufVerts->GetGPUVirtualAddress();
-	mDescViewBufVert.StrideInBytes = sizeof(VERTEX);
-	mDescViewBufVert.SizeInBytes = sizeof(triangleVerts);
-
-	// create fencing object
-	ThrowIfFailed(mDevice->CreateFence(0, D3D12_FENCE_MISC_NONE, &mFence));
-	mCurrentFence = 1;
-
-	// close the command list and use it to execute the initial GPU setup
-	ThrowIfFailed(mCommandList->Close());
-	ID3D12CommandList* ppCommandLists[] = { mCommandList.Get() };
-	mCommandQueue->ExecuteCommandLists(_countof(ppCommandLists), ppCommandLists);
-
-	// create event handle
-	mHandleEvent = CreateEventEx(nullptr, FALSE, FALSE, EVENT_ALL_ACCESS);
-
-	// wait for the command list to execute; we are reusing the same command list in our main loop but for now, we just want to wait for setup to complete before continuing
-	waitForPrevFrame();
-
-#endif
 }
 
 #if 0
@@ -473,8 +350,141 @@ bool initDirectX(HWND hWnd)
 	blendDesc.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_SRC_ALPHA;
 	blendDesc.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
 
-	// シェーダ読み込み
-	loadShader();
+	// 頂点シェーダコンパイル
+	if (compileShaderFlomFile(L"VertexShader.hlsl", "main", "vs_5_0", &g_pVSBlob) == false)
+	{
+		showErrorMessage(E_FAIL, TEXT("頂点シェーダコンパイル失敗"));
+	}
+
+	// ピクセルシェーダコンパイル
+	if (compileShaderFlomFile(L"PixelShader.hlsl", "main", "ps_5_0", &g_pPSBlob) == false)
+	{
+		showErrorMessage(E_FAIL, TEXT("頂点シェーダコンパイル失敗"));
+	}
+
+	// 空のルートシグニチャ作成
+	LPD3DBLOB pOutBlob, pErrorBlob;
+	D3D12_ROOT_SIGNATURE descRootSignature = D3D12_ROOT_SIGNATURE();
+	descRootSignature.Flags = D3D12_ROOT_SIGNATURE_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+	D3D12SerializeRootSignature(&descRootSignature, D3D_ROOT_SIGNATURE_V1, &pOutBlob, &pErrorBlob);
+	hr = g_pDevice->CreateRootSignature(
+		0x00000001,
+		pOutBlob->GetBufferPointer(),
+		pOutBlob->GetBufferSize(),
+		__uuidof(ID3D12RootSignature),
+		reinterpret_cast<void**>(&g_pRootSignature));
+
+	if (showErrorMessage(hr, TEXT("ルートシグニチャ作成失敗")))
+	{
+		return false;
+	}
+
+	// パイプラインステートオブジェクト作成
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC descPSO;
+	ZeroMemory(&descPSO, sizeof(descPSO));
+	descPSO.InputLayout = { INPUT_LAYOUT, ARRAYSIZE(INPUT_LAYOUT) };										// インプットレイアウト設定
+	descPSO.pRootSignature = g_pRootSignature;																// ルートシグニチャ設定
+	descPSO.VS = { reinterpret_cast<BYTE*>(g_pVSBlob->GetBufferPointer()), g_pVSBlob->GetBufferSize() };	// 頂点シェーダ設定
+	descPSO.PS = { reinterpret_cast<BYTE*>(g_pPSBlob->GetBufferPointer()), g_pPSBlob->GetBufferSize() };	// ピクセルシェーダ設定
+	descPSO.RasterizerState = CD3D12_RASTERIZER_DESC(D3D12_DEFAULT);										// ラスタライザ設定
+	descPSO.BlendState = CD3D12_BLEND_DESC(D3D12_DEFAULT);													// ブレンド設定
+	descPSO.DepthStencilState.DepthEnable = FALSE;															// 深度バッファ有効設定
+	descPSO.DepthStencilState.StencilEnable = FALSE;														// ステンシルバッファ有効設定
+	descPSO.SampleMask = UINT_MAX;
+	descPSO.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+	descPSO.NumRenderTargets = 1;
+	descPSO.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+	descPSO.SampleDesc.Count = 1;
+
+	hr = g_pDevice->CreateGraphicsPipelineState(
+		&descPSO,
+		__uuidof(ID3D12PipelineState),
+		reinterpret_cast<void**>(&g_pPipelineState));
+
+	if (showErrorMessage(hr, TEXT("パイプラインステートオブジェクト作成失敗")))
+	{
+		return false;
+	}
+
+	g_pGraphicsCommandList->SetPipelineState(g_pPipelineState);
+
+
+#if 0
+	// create descriptor heap
+	D3D12_DESCRIPTOR_HEAP_DESC descHeap = {};
+	descHeap.NumDescriptors = 1;
+	descHeap.Type = D3D12_RTV_DESCRIPTOR_HEAP;
+	descHeap.Flags = D3D12_DESCRIPTOR_HEAP_NONE;
+	ThrowIfFailed(mDevice->CreateDescriptorHeap(&descHeap, __uuidof(ID3D12DescriptorHeap), (void**)mDescriptorHeap.GetAddressOf()));
+
+	// create command list
+	ThrowIfFailed(mDevice->CreateCommandList(D3D12_COMMAND_LIST_TYPE_DIRECT, mCommandAllocator.Get(), mPSO.Get(), IID_PPV_ARGS(mCommandList.GetAddressOf())));
+
+	// create backbuffer/rendertarget
+	ThrowIfFailed(mSwapChain->GetBuffer(0, __uuidof(ID3D12Resource), (LPVOID*)mRenderTarget.GetAddressOf()));
+	mDevice->CreateRenderTargetView(mRenderTarget.Get(), nullptr, mDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
+
+	// set the viewport
+	mViewPort =
+	{
+		0.0f,
+		0.0f,
+		static_cast<float>(mWidth),
+		static_cast<float>(mHeight),
+		0.0f,
+		1.0f
+	};
+
+	// create scissor rectangle
+	mRectScissor = { 0, 0, mWidth, mHeight };
+
+	// create geometry for a triangle
+	VERTEX triangleVerts[] =
+	{
+		{ 0.0f, 0.5f, 0.0f,{ 1.0f, 0.0f, 0.0f, 1.0f } },
+		{ 0.45f, -0.5, 0.0f,{ 0.0f, 1.0f, 0.0f, 1.0f } },
+		{ -0.45f, -0.5f, 0.0f,{ 0.0f, 0.0f, 1.0f, 1.0f } }
+	};
+
+	// actually create the vert buffer
+	// Note: using upload heaps to transfer static data like vert buffers is not recommended.
+	// Every time the GPU needs it, the upload heap will be marshalled over.  Please read up on Default Heap usage.
+	// An upload heap is used here for code simplicity and because there are very few verts to actually transfer
+	ThrowIfFailed(mDevice->CreateCommittedResource(
+		&CD3D12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
+		D3D12_HEAP_MISC_NONE,
+		&CD3D12_RESOURCE_DESC::Buffer(3 * sizeof(VERTEX)),
+		D3D12_RESOURCE_USAGE_GENERIC_READ,
+		nullptr,    // Clear value
+		IID_PPV_ARGS(mBufVerts.GetAddressOf())));
+
+	// copy the triangle data to the vertex buffer
+	UINT8* dataBegin;
+	mBufVerts->Map(0, nullptr, reinterpret_cast<void**>(&dataBegin));
+	memcpy(dataBegin, triangleVerts, sizeof(triangleVerts));
+	mBufVerts->Unmap(0, nullptr);
+
+	// create vertex buffer view
+	mDescViewBufVert.BufferLocation = mBufVerts->GetGPUVirtualAddress();
+	mDescViewBufVert.StrideInBytes = sizeof(VERTEX);
+	mDescViewBufVert.SizeInBytes = sizeof(triangleVerts);
+
+	// create fencing object
+	ThrowIfFailed(mDevice->CreateFence(0, D3D12_FENCE_MISC_NONE, &mFence));
+	mCurrentFence = 1;
+
+	// close the command list and use it to execute the initial GPU setup
+	ThrowIfFailed(mCommandList->Close());
+	ID3D12CommandList* ppCommandLists[] = { mCommandList.Get() };
+	mCommandQueue->ExecuteCommandLists(_countof(ppCommandLists), ppCommandLists);
+
+	// create event handle
+	mHandleEvent = CreateEventEx(nullptr, FALSE, FALSE, EVENT_ALL_ACCESS);
+
+	// wait for the command list to execute; we are reusing the same command list in our main loop but for now, we just want to wait for setup to complete before continuing
+	waitForPrevFrame();
+
+#endif
 #if 0
 	// パイプラインステート作成
 	// の前になんかいろいろ用意しないといけない・・・
@@ -496,8 +506,6 @@ bool initDirectX(HWND hWnd)
 	{
 		return false;
 	}
-#else
-	//g_pGraphicsCommandList->SetPipelineState(nullptr);
 #endif
 
 	return true;
