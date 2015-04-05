@@ -2,13 +2,25 @@
 #include <tchar.h>
 #include <Windows.h>
 
+#include <memory>
+
 #include <d3d12.h>
 #include <dxgi1_2.h>
 #include <Dxgi1_3.h>
 #include <D3d12SDKLayers.h>
+#include <d3dcompiler.h>
 
 #pragma comment(lib, "d3d12.lib")
 #pragma comment(lib, "DXGI.lib")
+#pragma comment(lib, "D3DCompiler.lib")
+
+// ’è‹`
+// “ü—ÍƒŒƒCƒAƒEƒg
+const D3D12_INPUT_ELEMENT_DESC INPUT_LAYOUT[] =
+{
+	{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_PER_VERTEX_DATA, 0 },
+	{ "COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 12, D3D12_INPUT_PER_VERTEX_DATA, 0 }
+};
 
 // ’è”
 static const int SCREEN_WIDTH = 1280;
@@ -42,6 +54,9 @@ D3D12_CPU_DESCRIPTOR_HANDLE g_hBackBufferRTV;									// ƒoƒbƒNƒoƒbƒtƒ@ƒŒƒ“ƒ_[ƒ
 ID3D12Resource*				g_pDepthStencilResource;							// ƒfƒvƒXƒXƒeƒ“ƒVƒ‹‚ÌƒŠƒ\[ƒX
 D3D12_CPU_DESCRIPTOR_HANDLE g_hDepthStencilView;								// ƒfƒvƒXƒXƒeƒ“ƒVƒ‹ƒrƒ…[
 
+LPD3DBLOB					g_pVSBlob;											// ’¸“_ƒVƒF[ƒ_ƒuƒƒu
+LPD3DBLOB					g_pPSBlob;											// ƒsƒNƒZƒ‹ƒVƒF[ƒ_ƒuƒƒu
+
 // ƒGƒ‰[ƒƒbƒZ[ƒW
 // ƒGƒ‰[‚ª‹N‚±‚Á‚½‚çtrue‚ğ•Ô‚·‚æ‚¤‚É‚·‚é
 bool showErrorMessage(HRESULT hr, const LPTSTR text)
@@ -55,6 +70,7 @@ bool showErrorMessage(HRESULT hr, const LPTSTR text)
 	return false;
 }
 
+// ˆÀ‘S‚ÈŠJ•ú
 template<typename T>
 void safeRelease(T*& object)
 {
@@ -64,6 +80,211 @@ void safeRelease(T*& object)
 		object = nullptr;
 	}
 }
+
+// ƒVƒF[ƒ_ƒRƒ“ƒpƒCƒ‹
+bool compileShaderFlomFile(LPCWSTR pFileName, LPCSTR pEntrypoint, LPCSTR pTarget, ID3DBlob** ppblob)
+{
+	// ƒVƒF[ƒ_ƒRƒ“ƒpƒCƒ‹
+	HRESULT hr;
+	LPD3DBLOB pError = nullptr;
+	hr = D3DCompileFromFile(
+		pFileName, 
+		nullptr,
+		D3D_COMPILE_STANDARD_FILE_INCLUDE,
+		pEntrypoint, 
+		pTarget,
+		0,
+		0,
+		ppblob,
+		&pError);
+
+	if (FAILED(hr))
+	{
+		if (pError && pError->GetBufferPointer())
+		{
+			// ƒGƒ‰[ƒR[ƒh•\¦
+#ifdef _UNICODE
+			// Unicode‚Ì‚ÍUnicode•¶š‚É•ÏŠ·‚·‚é
+			int bufferSize = static_cast<int>(pError->GetBufferSize());
+			int strLen = MultiByteToWideChar(CP_ACP, 0, reinterpret_cast<CHAR*>(pError->GetBufferPointer()), bufferSize, nullptr, 0);
+
+			std::shared_ptr<wchar_t> errorStr(new wchar_t[strLen]);
+			MultiByteToWideChar(CP_ACP, 0, reinterpret_cast<char*>(pError->GetBufferPointer()), bufferSize, errorStr.get(), strLen);
+
+			OutputDebugString(errorStr.get());
+#else
+			OutputDebugString(reinterpret_cast<LPSTR>(lperror->GetBufferPointer()));
+#endif
+		}
+
+		safeRelease(pError);
+
+		// ƒRƒ“ƒpƒCƒ‹¸”s
+		return false;
+	}
+
+	// ƒRƒ“ƒpƒCƒ‹¬Œ÷
+	return true;
+}
+
+// ƒVƒF[ƒ_“Ç‚İ‚İ
+void loadShader()
+{	
+	// ’¸“_ƒVƒF[ƒ_ƒRƒ“ƒpƒCƒ‹
+	if (compileShaderFlomFile(L"VertexShader.hlsl", "main", "vs_5_0", &g_pVSBlob) == false) 
+	{
+		showErrorMessage(E_FAIL, TEXT("’¸“_ƒVƒF[ƒ_ƒRƒ“ƒpƒCƒ‹¸”s"));
+	}
+
+	// ƒsƒNƒZƒ‹ƒVƒF[ƒ_ƒRƒ“ƒpƒCƒ‹
+	if (compileShaderFlomFile(L"PixelShader.hlsl", "main", "ps_5_0", &g_pPSBlob) == false)
+	{
+		showErrorMessage(E_FAIL, TEXT("’¸“_ƒVƒF[ƒ_ƒRƒ“ƒpƒCƒ‹¸”s"));
+	}
+	
+	UINT numElements = ARRAYSIZE(INPUT_LAYOUT);
+
+
+#if 0
+	// ‹ó‚Ìƒ‹[ƒgƒVƒOƒjƒ`ƒƒì¬
+	ID3D12RootSignature* mRootSignature;
+	ID3DBlob* pOutBlob, pErrorBlob;
+	D3D12_ROOT_SIGNATURE descRootSignature = D3D12_ROOT_SIGNATURE();
+	descRootSignature.Flags = D3D12_ROOT_SIGNATURE_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+	ThrowIfFailed(D3D12SerializeRootSignature(&descRootSignature, D3D_ROOT_SIGNATURE_V1, pOutBlob.GetAddressOf(), pErrorBlob.GetAddressOf()));
+	ThrowIfFailed(mDevice->CreateRootSignature(pOutBlob->GetBufferPointer(), pOutBlob->GetBufferSize(), __uuidof(ID3D12RootSignature), (void**)mRootSignature.GetAddressOf()));
+
+	// create a PSO description
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC descPso;
+	ZeroMemory(&descPso, sizeof(descPso));
+	descPso.InputLayout = { layout, numElements };
+	descPso.pRootSignature = mRootSignature.Get();
+	descPso.VS = { reinterpret_cast<BYTE*>(blobShaderVert->GetBufferPointer()), blobShaderVert->GetBufferSize() };
+	descPso.PS = { reinterpret_cast<BYTE*>(blobShaderPixel->GetBufferPointer()), blobShaderPixel->GetBufferSize() };
+	descPso.RasterizerState = CD3D12_RASTERIZER_DESC(D3D12_DEFAULT);
+	descPso.BlendState = CD3D12_BLEND_DESC(D3D12_DEFAULT);
+	descPso.DepthStencilState.DepthEnable = FALSE;
+	descPso.DepthStencilState.StencilEnable = FALSE;
+	descPso.SampleMask = UINT_MAX;
+	descPso.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+	descPso.NumRenderTargets = 1;
+	descPso.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+	descPso.SampleDesc.Count = 1;
+
+	// create the actual PSO
+	ThrowIfFailed(mDevice->CreateGraphicsPipelineState(&descPso, mPSO.GetAddressOf()));
+
+	// create descriptor heap
+	D3D12_DESCRIPTOR_HEAP_DESC descHeap = {};
+	descHeap.NumDescriptors = 1;
+	descHeap.Type = D3D12_RTV_DESCRIPTOR_HEAP;
+	descHeap.Flags = D3D12_DESCRIPTOR_HEAP_NONE;
+	ThrowIfFailed(mDevice->CreateDescriptorHeap(&descHeap, __uuidof(ID3D12DescriptorHeap), (void**)mDescriptorHeap.GetAddressOf()));
+
+	// create command list
+	ThrowIfFailed(mDevice->CreateCommandList(D3D12_COMMAND_LIST_TYPE_DIRECT, mCommandAllocator.Get(), mPSO.Get(), IID_PPV_ARGS(mCommandList.GetAddressOf())));
+
+	// create backbuffer/rendertarget
+	ThrowIfFailed(mSwapChain->GetBuffer(0, __uuidof(ID3D12Resource), (LPVOID*)mRenderTarget.GetAddressOf()));
+	mDevice->CreateRenderTargetView(mRenderTarget.Get(), nullptr, mDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
+
+	// set the viewport
+	mViewPort =
+	{
+		0.0f,
+		0.0f,
+		static_cast<float>(mWidth),
+		static_cast<float>(mHeight),
+		0.0f,
+		1.0f
+	};
+
+	// create scissor rectangle
+	mRectScissor = { 0, 0, mWidth, mHeight };
+
+	// create geometry for a triangle
+	VERTEX triangleVerts[] =
+	{
+		{ 0.0f, 0.5f, 0.0f,{ 1.0f, 0.0f, 0.0f, 1.0f } },
+		{ 0.45f, -0.5, 0.0f,{ 0.0f, 1.0f, 0.0f, 1.0f } },
+		{ -0.45f, -0.5f, 0.0f,{ 0.0f, 0.0f, 1.0f, 1.0f } }
+	};
+
+	// actually create the vert buffer
+	// Note: using upload heaps to transfer static data like vert buffers is not recommended.
+	// Every time the GPU needs it, the upload heap will be marshalled over.  Please read up on Default Heap usage.
+	// An upload heap is used here for code simplicity and because there are very few verts to actually transfer
+	ThrowIfFailed(mDevice->CreateCommittedResource(
+		&CD3D12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
+		D3D12_HEAP_MISC_NONE,
+		&CD3D12_RESOURCE_DESC::Buffer(3 * sizeof(VERTEX)),
+		D3D12_RESOURCE_USAGE_GENERIC_READ,
+		nullptr,    // Clear value
+		IID_PPV_ARGS(mBufVerts.GetAddressOf())));
+
+	// copy the triangle data to the vertex buffer
+	UINT8* dataBegin;
+	mBufVerts->Map(0, nullptr, reinterpret_cast<void**>(&dataBegin));
+	memcpy(dataBegin, triangleVerts, sizeof(triangleVerts));
+	mBufVerts->Unmap(0, nullptr);
+
+	// create vertex buffer view
+	mDescViewBufVert.BufferLocation = mBufVerts->GetGPUVirtualAddress();
+	mDescViewBufVert.StrideInBytes = sizeof(VERTEX);
+	mDescViewBufVert.SizeInBytes = sizeof(triangleVerts);
+
+	// create fencing object
+	ThrowIfFailed(mDevice->CreateFence(0, D3D12_FENCE_MISC_NONE, &mFence));
+	mCurrentFence = 1;
+
+	// close the command list and use it to execute the initial GPU setup
+	ThrowIfFailed(mCommandList->Close());
+	ID3D12CommandList* ppCommandLists[] = { mCommandList.Get() };
+	mCommandQueue->ExecuteCommandLists(_countof(ppCommandLists), ppCommandLists);
+
+	// create event handle
+	mHandleEvent = CreateEventEx(nullptr, FALSE, FALSE, EVENT_ALL_ACCESS);
+
+	// wait for the command list to execute; we are reusing the same command list in our main loop but for now, we just want to wait for setup to complete before continuing
+	waitForPrevFrame();
+
+#endif
+}
+
+#if 0
+///
+/// Fill the command list with all the render commands and dependent state
+///
+void populateCommandLists()
+{
+	// command list allocators can be only be reset when the associated command lists have finished execution on the GPU; apps should use fences to determine GPU execution progress
+	ThrowIfFailed(mCommandAllocator->Reset());
+
+	// HOWEVER, when ExecuteCommandList() is called on a particular command list, that command list can then be reset anytime and must be before rerecording
+	ThrowIfFailed(mCommandList->Reset(mCommandAllocator.Get(), mPSO.Get()));
+
+	// set the viewport and scissor rectangle
+	mCommandList->RSSetViewports(1, &mViewPort);
+	mCommandList->RSSetScissorRects(1, &mRectScissor);
+
+	// indicate this resource will be in use as a render target
+	setResourceBarrier(mCommandList.Get(), mRenderTarget.Get(), D3D12_RESOURCE_USAGE_PRESENT, D3D12_RESOURCE_USAGE_RENDER_TARGET);
+
+	// record commands
+	float clearColor[] = { 0.0f, 0.2f, 0.4f, 1.0f };
+	mCommandList->ClearRenderTargetView(mDescriptorHeap->GetCPUDescriptorHandleForHeapStart(), clearColor, nullptr, 0);
+	mCommandList->SetRenderTargets(&mDescriptorHeap->GetCPUDescriptorHandleForHeapStart(), true, 1, nullptr);
+	mCommandList->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	mCommandList->SetVertexBuffers(0, &mDescViewBufVert, 1);
+	mCommandList->DrawInstanced(3, 1, 0, 0);
+
+	// indicate that the render target will now be used to present when the command list is done executing
+	setResourceBarrier(mCommandList.Get(), mRenderTarget.Get(), D3D12_RESOURCE_USAGE_RENDER_TARGET, D3D12_RESOURCE_USAGE_PRESENT);
+
+	// all we need to do now is execute the command list
+	ThrowIfFailed(mCommandList->Close());
+}
+#endif
 
 // DirectX‰Šú‰»
 bool initDirectX(HWND hWnd)
@@ -169,30 +390,6 @@ bool initDirectX(HWND hWnd)
 		return false;
 	}
 
-#if 0
-	// ƒpƒCƒvƒ‰ƒCƒ“ƒXƒe[ƒgì¬
-	// ‚Ì‘O‚É‚È‚ñ‚©‚¢‚ë‚¢‚ë—pˆÓ‚µ‚È‚¢‚Æ‚¢‚¯‚È‚¢EEE
-
-	// ƒ‹[ƒgƒVƒOƒjƒ`ƒƒ‚Ìì¬
-
-
-	D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc;
-	ZeroMemory(&psoDesc, sizeof(psoDesc));
-
-	psoDesc.pRootSignature;	// ƒ‹[ƒgƒVƒOƒjƒ`ƒƒ
-	psoDesc.NumRenderTargets = 1;
-
-	hr = g_pDevice->CreateGraphicsPipelineState(
-		&psoDesc,
-		__uuidof(ID3D12PipelineState),
-		reinterpret_cast<void**>(&g_pPipelineState));
-	if (showErrorMessage(hr, TEXT("ƒpƒCƒvƒ‰ƒCƒ“ƒXƒe[ƒgì¬¸”s")))
-	{
-		return false;
-	}
-
-#endif
-
 	// •`‰æƒRƒ}ƒ“ƒhƒŠƒXƒgì¬
 	hr = g_pDevice->CreateCommandList(
 		commandQueueDesk.NodeMask,
@@ -222,7 +419,7 @@ bool initDirectX(HWND hWnd)
 			&heapDesc,
 			__uuidof(ID3D12DescriptorHeap),
 			reinterpret_cast<void**>(&g_pDescripterHeapArray[i]));
-		if (showErrorMessage(hr, TEXT("‹Lqqƒq[ƒvì¬¸”s")))
+		if (showErrorMessage(hr, TEXT("ƒfƒBƒXƒNƒŠƒvƒ^ƒq[ƒvì¬¸”s")))
 		{
 			return false;
 		}
@@ -276,7 +473,32 @@ bool initDirectX(HWND hWnd)
 	blendDesc.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_SRC_ALPHA;
 	blendDesc.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
 
-	//g_pDevice->GetCopyableLayout
+	// ƒVƒF[ƒ_“Ç‚İ‚İ
+	loadShader();
+#if 0
+	// ƒpƒCƒvƒ‰ƒCƒ“ƒXƒe[ƒgì¬
+	// ‚Ì‘O‚É‚È‚ñ‚©‚¢‚ë‚¢‚ë—pˆÓ‚µ‚È‚¢‚Æ‚¢‚¯‚È‚¢EEE
+
+	// ƒ‹[ƒgƒVƒOƒjƒ`ƒƒ‚Ìì¬
+
+
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc;
+	ZeroMemory(&psoDesc, sizeof(psoDesc));
+
+	psoDesc.pRootSignature;	// ƒ‹[ƒgƒVƒOƒjƒ`ƒƒ
+	psoDesc.NumRenderTargets = 1;
+
+	hr = g_pDevice->CreateGraphicsPipelineState(
+		&psoDesc,
+		__uuidof(ID3D12PipelineState),
+		reinterpret_cast<void**>(&g_pPipelineState));
+	if (showErrorMessage(hr, TEXT("ƒpƒCƒvƒ‰ƒCƒ“ƒXƒe[ƒgì¬¸”s")))
+	{
+		return false;
+	}
+#else
+	//g_pGraphicsCommandList->SetPipelineState(nullptr);
+#endif
 
 	return true;
 }
@@ -440,5 +662,5 @@ int APIENTRY _tWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPTSTR lpCm
 	// “o˜^‚µ‚½ƒNƒ‰ƒX‚ğ‰ğœ
 	UnregisterClass(CLASS_NAME, hInstance);
 
-	return msg.wParam;
+	return 0;
 }
