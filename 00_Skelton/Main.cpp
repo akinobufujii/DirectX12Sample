@@ -52,9 +52,7 @@ ID3D12RootSignature*		g_pRootSignature;									// ルートシグニチャ
 D3D12_VIEWPORT				g_viewPort;											// ビューポート
 
 ID3D12Resource*				g_pBackBufferResource;								// バックバッファのリソース
-D3D12_CPU_DESCRIPTOR_HANDLE g_hBackBufferRTV;									// バックバッファレンダーターゲットビュー
 ID3D12Resource*				g_pDepthStencilResource;							// デプスステンシルのリソース
-D3D12_CPU_DESCRIPTOR_HANDLE g_hDepthStencilView;								// デプスステンシルビュー
 
 LPD3DBLOB					g_pVSBlob;											// 頂点シェーダブロブ
 LPD3DBLOB					g_pPSBlob;											// ピクセルシェーダブロブ
@@ -260,7 +258,7 @@ bool initDirectX(HWND hWnd)
 	}
 
 	// 空のルートシグニチャ作成
-	LPD3DBLOB pOutBlob;
+	LPD3DBLOB pOutBlob = nullptr;
 	D3D12_ROOT_SIGNATURE descRootSignature = D3D12_ROOT_SIGNATURE();
 	descRootSignature.Flags = D3D12_ROOT_SIGNATURE_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
 	D3D12SerializeRootSignature(&descRootSignature, D3D_ROOT_SIGNATURE_V1, &pOutBlob, nullptr);
@@ -271,6 +269,7 @@ bool initDirectX(HWND hWnd)
 		__uuidof(ID3D12RootSignature),
 		reinterpret_cast<void**>(&g_pRootSignature));
 
+	safeRelease(pOutBlob);
 	if (showErrorMessage(hr, TEXT("ルートシグニチャ作成失敗")))
 	{
 		return false;
@@ -332,7 +331,6 @@ bool initDirectX(HWND hWnd)
 
 	// レンダーターゲットビューを作成
 	hr = g_pGISwapChain->GetBuffer(0, __uuidof(ID3D12Resource), reinterpret_cast<void**>(&g_pBackBufferResource));
-	g_pGISwapChain->GetBuffer(0, __uuidof(ID3D12Resource), reinterpret_cast<void**>(&g_pBackBufferResource));
 	if (showErrorMessage(hr, TEXT("レンダーターゲットビュー作成失敗")))
 	{
 		return false;
@@ -347,8 +345,6 @@ bool initDirectX(HWND hWnd)
 	{
 		return false;
 	}
-	g_hDepthStencilView = g_pDescripterHeapArray[DESCRIPTOR_HEAP_TYPE_DSV]->GetCPUDescriptorHandleForHeapStart();
-
 
 	D3D12_DEPTH_STENCIL_VIEW_DESC depthStencilDesc;
 	ZeroMemory(&depthStencilDesc, sizeof(depthStencilDesc));
@@ -358,11 +354,22 @@ bool initDirectX(HWND hWnd)
 	depthStencilDesc.Flags = D3D12_DSV_NONE;					// アクセスフラグ
 	depthStencilDesc.Texture2D.MipSlice = 0;								// 使用する最初のミップマップ
 
-	g_pDevice->CreateDepthStencilView(g_pDepthStencilResource, &depthStencilDesc, g_hDepthStencilView);
-#endif
+	g_pDevice->CreateDepthStencilView(g_pDepthStencilResource, &depthStencilDesc, g_pDescripterHeapArray[DESCRIPTOR_HEAP_TYPE_DSV]->GetCPUDescriptorHandleForHeapStart());
 
 	// レンダーターゲットビューを設定
-	g_pGraphicsCommandList->SetRenderTargets(&g_pDescripterHeapArray[DESCRIPTOR_HEAP_TYPE_RTV]->GetCPUDescriptorHandleForHeapStart(), TRUE, 1, nullptr);
+	g_pGraphicsCommandList->SetRenderTargets(
+		&g_pDescripterHeapArray[DESCRIPTOR_HEAP_TYPE_RTV]->GetCPUDescriptorHandleForHeapStart(),
+		TRUE, 
+		1,
+		g_pDescripterHeapArray[DESCRIPTOR_HEAP_TYPE_DSV]->GetCPUDescriptorHandleForHeapStart());
+#else
+	// レンダーターゲットビューを設定
+	g_pGraphicsCommandList->SetRenderTargets(
+		&g_pDescripterHeapArray[DESCRIPTOR_HEAP_TYPE_RTV]->GetCPUDescriptorHandleForHeapStart(),
+		TRUE,
+		1,
+		nullptr);
+#endif
 
 	// ビューポート設定
 	g_viewPort.TopLeftX = 0;			// X座標
@@ -373,9 +380,6 @@ bool initDirectX(HWND hWnd)
 	g_viewPort.MaxDepth = 1.0f;			// 最大深度
 	
 #else
-	// create scissor rectangle
-	mRectScissor = { 0, 0, mWidth, mHeight };
-
 	// create geometry for a triangle
 	VERTEX triangleVerts[] =
 	{
@@ -423,13 +427,19 @@ bool initDirectX(HWND hWnd)
 	waitForPrevFrame();
 
 #endif
-
 	return true;
 }
 
 // DirectX12クリーンアップ
 void cleanupDirectX()
 {
+	safeRelease(g_pBackBufferResource);
+	for (int i = 0; i < DESCRIPTOR_HEAP_TYPE_MAX; ++i)
+	{
+		safeRelease(g_pDescripterHeapArray[i]);
+	}
+	safeRelease(g_pPipelineState);
+	safeRelease(g_pRootSignature);
 	safeRelease(g_pPSBlob);
 	safeRelease(g_pVSBlob);
 	safeRelease(g_pGraphicsCommandList);
@@ -481,13 +491,6 @@ void populateCommandLists()
 // 描画
 void Render()
 {
-	// コマンドリストアロケータは、関連するコマンドリストをGPU上での実行を終了したときにリセットすることができます。
-	// アプリはGPU実行の進行状況を判断するためにフェンスを使用する必要があります
-	g_pCommandAllocator->Reset();
-
-	// 描画コマンドを積む前にリセット
-	g_pGraphicsCommandList->Reset(g_pCommandAllocator, g_pPipelineState);
-
 	// 矩形を設定
 	CD3D12_RECT clearRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
 	g_pGraphicsCommandList->RSSetViewports(1, &g_viewPort);
@@ -500,7 +503,7 @@ void Render()
 		D3D12_RESOURCE_USAGE_PRESENT,
 		D3D12_RESOURCE_USAGE_RENDER_TARGET);
 
-	// クリア.
+	// クリア
 	float clearColor[] = { 0.0f, 0.2f, 0.4f, 1.0f };
 
 	// レンダーターゲットビューを設定して画面をクリア
@@ -523,7 +526,11 @@ void Render()
 	g_pCommandQueue->ExecuteCommandLists(1, &pTemp);
 
 	// フリップ
-	g_pGISwapChain->Present(1, 0);
+	g_pGISwapChain->Present(0, 0);
+
+	// コマンドリストアロケータとコマンドリストをリセット
+	g_pCommandAllocator->Reset();
+	g_pGraphicsCommandList->Reset(g_pCommandAllocator, g_pPipelineState);
 }
 
 // ウィンドウプロシージャ
