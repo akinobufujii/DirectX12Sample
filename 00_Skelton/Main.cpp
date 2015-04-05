@@ -33,7 +33,7 @@ enum DESCRIPTOR_HEAP_TYPE
 	DESCRIPTOR_HEAP_TYPE_SAMPLER,		// サンプラ用
 	DESCRIPTOR_HEAP_TYPE_RTV,			// レンダーターゲット用	
 	DESCRIPTOR_HEAP_TYPE_DSV,			// デプスステンシル用	
-	DESCRIPTOR_HEAP_TYPE_MAX,
+	DESCRIPTOR_HEAP_TYPE_MAX,			// ディスクリプタヒープ数
 	DESCRIPTOR_HEAP_TYPE_SET = DESCRIPTOR_HEAP_TYPE_SAMPLER + 1,
 };
 
@@ -49,6 +49,7 @@ ID3D12PipelineState*		g_pPipelineState;									// パイプラインステート
 ID3D12DescriptorHeap*		g_pDescripterHeapArray[DESCRIPTOR_HEAP_TYPE_MAX];	// ディスクリプタヒープ配列
 ID3D12GraphicsCommandList*	g_pGraphicsCommandList;								// 描画コマンドリスト
 ID3D12RootSignature*		g_pRootSignature;									// ルートシグニチャ
+D3D12_VIEWPORT				g_viewPort;											// ビューポート
 
 ID3D12Resource*				g_pBackBufferResource;								// バックバッファのリソース
 D3D12_CPU_DESCRIPTOR_HANDLE g_hBackBufferRTV;									// バックバッファレンダーターゲットビュー
@@ -127,41 +128,6 @@ bool compileShaderFlomFile(LPCWSTR pFileName, LPCSTR pEntrypoint, LPCSTR pTarget
 	// コンパイル成功
 	return true;
 }
-
-#if 0
-///
-/// Fill the command list with all the render commands and dependent state
-///
-void populateCommandLists()
-{
-	// command list allocators can be only be reset when the associated command lists have finished execution on the GPU; apps should use fences to determine GPU execution progress
-	ThrowIfFailed(mCommandAllocator->Reset());
-
-	// HOWEVER, when ExecuteCommandList() is called on a particular command list, that command list can then be reset anytime and must be before rerecording
-	ThrowIfFailed(mCommandList->Reset(mCommandAllocator.Get(), mPSO.Get()));
-
-	// set the viewport and scissor rectangle
-	mCommandList->RSSetViewports(1, &mViewPort);
-	mCommandList->RSSetScissorRects(1, &mRectScissor);
-
-	// indicate this resource will be in use as a render target
-	setResourceBarrier(mCommandList.Get(), mRenderTarget.Get(), D3D12_RESOURCE_USAGE_PRESENT, D3D12_RESOURCE_USAGE_RENDER_TARGET);
-
-	// record commands
-	float clearColor[] = { 0.0f, 0.2f, 0.4f, 1.0f };
-	mCommandList->ClearRenderTargetView(mDescriptorHeap->GetCPUDescriptorHandleForHeapStart(), clearColor, nullptr, 0);
-	mCommandList->SetRenderTargets(&mDescriptorHeap->GetCPUDescriptorHandleForHeapStart(), true, 1, nullptr);
-	mCommandList->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-	mCommandList->SetVertexBuffers(0, &mDescViewBufVert, 1);
-	mCommandList->DrawInstanced(3, 1, 0, 0);
-
-	// indicate that the render target will now be used to present when the command list is done executing
-	setResourceBarrier(mCommandList.Get(), mRenderTarget.Get(), D3D12_RESOURCE_USAGE_RENDER_TARGET, D3D12_RESOURCE_USAGE_PRESENT);
-
-	// all we need to do now is execute the command list
-	ThrowIfFailed(mCommandList->Close());
-}
-#endif
 
 // DirectX初期化
 bool initDirectX(HWND hWnd)
@@ -269,7 +235,7 @@ bool initDirectX(HWND hWnd)
 
 	// 描画コマンドリスト作成
 	hr = g_pDevice->CreateCommandList(
-		commandQueueDesk.NodeMask,
+		0x00000001,
 		D3D12_COMMAND_LIST_TYPE_DIRECT,
 		g_pCommandAllocator,
 		g_pPipelineState,
@@ -281,16 +247,75 @@ bool initDirectX(HWND hWnd)
 		return false;
 	}
 
+	// 頂点シェーダコンパイル
+	if (compileShaderFlomFile(L"VertexShader.hlsl", "main", "vs_5_0", &g_pVSBlob) == false)
+	{
+		showErrorMessage(E_FAIL, TEXT("頂点シェーダコンパイル失敗"));
+	}
+
+	// ピクセルシェーダコンパイル
+	if (compileShaderFlomFile(L"PixelShader.hlsl", "main", "ps_5_0", &g_pPSBlob) == false)
+	{
+		showErrorMessage(E_FAIL, TEXT("頂点シェーダコンパイル失敗"));
+	}
+
+	// 空のルートシグニチャ作成
+	LPD3DBLOB pOutBlob;
+	D3D12_ROOT_SIGNATURE descRootSignature = D3D12_ROOT_SIGNATURE();
+	descRootSignature.Flags = D3D12_ROOT_SIGNATURE_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+	D3D12SerializeRootSignature(&descRootSignature, D3D_ROOT_SIGNATURE_V1, &pOutBlob, nullptr);
+	hr = g_pDevice->CreateRootSignature(
+		0x00000001,
+		pOutBlob->GetBufferPointer(),
+		pOutBlob->GetBufferSize(),
+		__uuidof(ID3D12RootSignature),
+		reinterpret_cast<void**>(&g_pRootSignature));
+
+	if (showErrorMessage(hr, TEXT("ルートシグニチャ作成失敗")))
+	{
+		return false;
+	}
+
+	// パイプラインステートオブジェクト作成
+	// 頂点シェーダとピクセルシェーダがないと、作成に失敗する
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC descPSO;
+	ZeroMemory(&descPSO, sizeof(descPSO));
+	descPSO.InputLayout = { INPUT_LAYOUT, ARRAYSIZE(INPUT_LAYOUT) };										// インプットレイアウト設定
+	descPSO.pRootSignature = g_pRootSignature;																// ルートシグニチャ設定
+	descPSO.VS = { reinterpret_cast<BYTE*>(g_pVSBlob->GetBufferPointer()), g_pVSBlob->GetBufferSize() };	// 頂点シェーダ設定
+	descPSO.PS = { reinterpret_cast<BYTE*>(g_pPSBlob->GetBufferPointer()), g_pPSBlob->GetBufferSize() };	// ピクセルシェーダ設定
+	descPSO.RasterizerState = CD3D12_RASTERIZER_DESC(D3D12_DEFAULT);										// ラスタライザ設定
+	descPSO.BlendState = CD3D12_BLEND_DESC(D3D12_DEFAULT);													// ブレンド設定
+	descPSO.DepthStencilState.DepthEnable = FALSE;															// 深度バッファ有効設定
+	descPSO.DepthStencilState.StencilEnable = FALSE;														// ステンシルバッファ有効設定
+	descPSO.SampleMask = UINT_MAX;																			// サンプルマスク設定
+	descPSO.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;									// プリミティブタイプ	
+	descPSO.NumRenderTargets = 1;																			// レンダーターゲット数
+	descPSO.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;														// レンダーターゲットフォーマット
+	descPSO.SampleDesc.Count = 1;																			// サンプルカウント
+
+	hr = g_pDevice->CreateGraphicsPipelineState(
+		&descPSO,
+		__uuidof(ID3D12PipelineState),
+		reinterpret_cast<void**>(&g_pPipelineState));
+
+	if (showErrorMessage(hr, TEXT("パイプラインステートオブジェクト作成失敗")))
+	{
+		return false;
+	}
+
+	g_pGraphicsCommandList->SetPipelineState(g_pPipelineState);
+
+#if 1
 	// ディスクリプタヒープ作成
-	D3D12_DESCRIPTOR_HEAP_DESC heapDesc;
+	D3D12_DESCRIPTOR_HEAP_DESC heapDesc = {};
 	ZeroMemory(&heapDesc, sizeof(heapDesc));
 
 	heapDesc.NumDescriptors = 1;
-	heapDesc.Flags = D3D12_DESCRIPTOR_HEAP_SHADER_VISIBLE;
-	heapDesc.NodeMask = 0x00000001;
 
 	for (int i = 0; i < DESCRIPTOR_HEAP_TYPE_MAX; ++i)
 	{
+		heapDesc.Flags = (i == D3D12_RTV_DESCRIPTOR_HEAP) ? D3D12_DESCRIPTOR_HEAP_NONE : D3D12_DESCRIPTOR_HEAP_SHADER_VISIBLE;
 		heapDesc.Type = static_cast<D3D12_DESCRIPTOR_HEAP_TYPE>(i);
 		hr = g_pDevice->CreateDescriptorHeap(
 			&heapDesc,
@@ -307,12 +332,13 @@ bool initDirectX(HWND hWnd)
 
 	// レンダーターゲットビューを作成
 	hr = g_pGISwapChain->GetBuffer(0, __uuidof(ID3D12Resource), reinterpret_cast<void**>(&g_pBackBufferResource));
+	g_pGISwapChain->GetBuffer(0, __uuidof(ID3D12Resource), reinterpret_cast<void**>(&g_pBackBufferResource));
 	if (showErrorMessage(hr, TEXT("レンダーターゲットビュー作成失敗")))
 	{
 		return false;
 	}
-	g_hBackBufferRTV = g_pDescripterHeapArray[DESCRIPTOR_HEAP_TYPE_RTV]->GetCPUDescriptorHandleForHeapStart();
-	g_pDevice->CreateRenderTargetView(g_pBackBufferResource, nullptr, g_hBackBufferRTV);
+	
+	g_pDevice->CreateRenderTargetView(g_pBackBufferResource, nullptr, g_pDescripterHeapArray[DESCRIPTOR_HEAP_TYPE_RTV]->GetCPUDescriptorHandleForHeapStart());
 
 #if 0
 	// 深度ステンシルビュー作成
@@ -327,114 +353,26 @@ bool initDirectX(HWND hWnd)
 	D3D12_DEPTH_STENCIL_VIEW_DESC depthStencilDesc;
 	ZeroMemory(&depthStencilDesc, sizeof(depthStencilDesc));
 
-	depthStencilDesc.Format				= DXGI_FORMAT_D32_FLOAT;			// フォーマット
-	depthStencilDesc.ViewDimension		= D3D12_DSV_DIMENSION_TEXTURE2D;	// リソースアクセス方法
-	depthStencilDesc.Flags				= D3D12_DSV_NONE;					// アクセスフラグ
+	depthStencilDesc.Format = DXGI_FORMAT_D32_FLOAT;			// フォーマット
+	depthStencilDesc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;	// リソースアクセス方法
+	depthStencilDesc.Flags = D3D12_DSV_NONE;					// アクセスフラグ
 	depthStencilDesc.Texture2D.MipSlice = 0;								// 使用する最初のミップマップ
 
 	g_pDevice->CreateDepthStencilView(g_pDepthStencilResource, &depthStencilDesc, g_hDepthStencilView);
 #endif
 
 	// レンダーターゲットビューを設定
-	//g_pGraphicsCommandList->SetRenderTargets(&g_hBackBufferRTV, TRUE, 1, &g_hDepthStencilView);
-	g_pGraphicsCommandList->SetRenderTargets(&g_hBackBufferRTV, TRUE, 1, nullptr);
+	g_pGraphicsCommandList->SetRenderTargets(&g_pDescripterHeapArray[DESCRIPTOR_HEAP_TYPE_RTV]->GetCPUDescriptorHandleForHeapStart(), TRUE, 1, nullptr);
 
-	// ブレンドステート設定
-	D3D12_BLEND_DESC blendDesc;
-	blendDesc.RenderTarget[0].BlendEnable = true;
-	blendDesc.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
-	blendDesc.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
-	blendDesc.RenderTarget[0].DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
-	blendDesc.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_INV_SRC_ALPHA;
-	blendDesc.RenderTarget[0].SrcBlend = D3D12_BLEND_SRC_ALPHA;
-	blendDesc.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_SRC_ALPHA;
-	blendDesc.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
-
-	// 頂点シェーダコンパイル
-	if (compileShaderFlomFile(L"VertexShader.hlsl", "main", "vs_5_0", &g_pVSBlob) == false)
-	{
-		showErrorMessage(E_FAIL, TEXT("頂点シェーダコンパイル失敗"));
-	}
-
-	// ピクセルシェーダコンパイル
-	if (compileShaderFlomFile(L"PixelShader.hlsl", "main", "ps_5_0", &g_pPSBlob) == false)
-	{
-		showErrorMessage(E_FAIL, TEXT("頂点シェーダコンパイル失敗"));
-	}
-
-	// 空のルートシグニチャ作成
-	LPD3DBLOB pOutBlob, pErrorBlob;
-	D3D12_ROOT_SIGNATURE descRootSignature = D3D12_ROOT_SIGNATURE();
-	descRootSignature.Flags = D3D12_ROOT_SIGNATURE_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
-	D3D12SerializeRootSignature(&descRootSignature, D3D_ROOT_SIGNATURE_V1, &pOutBlob, &pErrorBlob);
-	hr = g_pDevice->CreateRootSignature(
-		0x00000001,
-		pOutBlob->GetBufferPointer(),
-		pOutBlob->GetBufferSize(),
-		__uuidof(ID3D12RootSignature),
-		reinterpret_cast<void**>(&g_pRootSignature));
-
-	if (showErrorMessage(hr, TEXT("ルートシグニチャ作成失敗")))
-	{
-		return false;
-	}
-
-	// パイプラインステートオブジェクト作成
-	D3D12_GRAPHICS_PIPELINE_STATE_DESC descPSO;
-	ZeroMemory(&descPSO, sizeof(descPSO));
-	descPSO.InputLayout = { INPUT_LAYOUT, ARRAYSIZE(INPUT_LAYOUT) };										// インプットレイアウト設定
-	descPSO.pRootSignature = g_pRootSignature;																// ルートシグニチャ設定
-	descPSO.VS = { reinterpret_cast<BYTE*>(g_pVSBlob->GetBufferPointer()), g_pVSBlob->GetBufferSize() };	// 頂点シェーダ設定
-	descPSO.PS = { reinterpret_cast<BYTE*>(g_pPSBlob->GetBufferPointer()), g_pPSBlob->GetBufferSize() };	// ピクセルシェーダ設定
-	descPSO.RasterizerState = CD3D12_RASTERIZER_DESC(D3D12_DEFAULT);										// ラスタライザ設定
-	descPSO.BlendState = CD3D12_BLEND_DESC(D3D12_DEFAULT);													// ブレンド設定
-	descPSO.DepthStencilState.DepthEnable = FALSE;															// 深度バッファ有効設定
-	descPSO.DepthStencilState.StencilEnable = FALSE;														// ステンシルバッファ有効設定
-	descPSO.SampleMask = UINT_MAX;
-	descPSO.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-	descPSO.NumRenderTargets = 1;
-	descPSO.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
-	descPSO.SampleDesc.Count = 1;
-
-	hr = g_pDevice->CreateGraphicsPipelineState(
-		&descPSO,
-		__uuidof(ID3D12PipelineState),
-		reinterpret_cast<void**>(&g_pPipelineState));
-
-	if (showErrorMessage(hr, TEXT("パイプラインステートオブジェクト作成失敗")))
-	{
-		return false;
-	}
-
-	g_pGraphicsCommandList->SetPipelineState(g_pPipelineState);
-
-
-#if 0
-	// create descriptor heap
-	D3D12_DESCRIPTOR_HEAP_DESC descHeap = {};
-	descHeap.NumDescriptors = 1;
-	descHeap.Type = D3D12_RTV_DESCRIPTOR_HEAP;
-	descHeap.Flags = D3D12_DESCRIPTOR_HEAP_NONE;
-	ThrowIfFailed(mDevice->CreateDescriptorHeap(&descHeap, __uuidof(ID3D12DescriptorHeap), (void**)mDescriptorHeap.GetAddressOf()));
-
-	// create command list
-	ThrowIfFailed(mDevice->CreateCommandList(D3D12_COMMAND_LIST_TYPE_DIRECT, mCommandAllocator.Get(), mPSO.Get(), IID_PPV_ARGS(mCommandList.GetAddressOf())));
-
-	// create backbuffer/rendertarget
-	ThrowIfFailed(mSwapChain->GetBuffer(0, __uuidof(ID3D12Resource), (LPVOID*)mRenderTarget.GetAddressOf()));
-	mDevice->CreateRenderTargetView(mRenderTarget.Get(), nullptr, mDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
-
-	// set the viewport
-	mViewPort =
-	{
-		0.0f,
-		0.0f,
-		static_cast<float>(mWidth),
-		static_cast<float>(mHeight),
-		0.0f,
-		1.0f
-	};
-
+	// ビューポート設定
+	g_viewPort.TopLeftX = 0;			// X座標
+	g_viewPort.TopLeftY = 0;			// Y座標
+	g_viewPort.Width = SCREEN_WIDTH;	// 幅
+	g_viewPort.Height = SCREEN_HEIGHT;	// 高さ
+	g_viewPort.MinDepth = 0.0f;			// 最少深度
+	g_viewPort.MaxDepth = 1.0f;			// 最大深度
+	
+#else
 	// create scissor rectangle
 	mRectScissor = { 0, 0, mWidth, mHeight };
 
@@ -485,28 +423,6 @@ bool initDirectX(HWND hWnd)
 	waitForPrevFrame();
 
 #endif
-#if 0
-	// パイプラインステート作成
-	// の前になんかいろいろ用意しないといけない・・・
-
-	// ルートシグニチャの作成
-
-
-	D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc;
-	ZeroMemory(&psoDesc, sizeof(psoDesc));
-
-	psoDesc.pRootSignature;	// ルートシグニチャ
-	psoDesc.NumRenderTargets = 1;
-
-	hr = g_pDevice->CreateGraphicsPipelineState(
-		&psoDesc,
-		__uuidof(ID3D12PipelineState),
-		reinterpret_cast<void**>(&g_pPipelineState));
-	if (showErrorMessage(hr, TEXT("パイプラインステート作成失敗")))
-	{
-		return false;
-	}
-#endif
 
 	return true;
 }
@@ -514,6 +430,9 @@ bool initDirectX(HWND hWnd)
 // DirectX12クリーンアップ
 void cleanupDirectX()
 {
+	safeRelease(g_pPSBlob);
+	safeRelease(g_pVSBlob);
+	safeRelease(g_pGraphicsCommandList);
 	safeRelease(g_pGISwapChain);
 	safeRelease(g_pGIFactory);
 	safeRelease(g_pGIAdapter);
@@ -523,6 +442,7 @@ void cleanupDirectX()
 	safeRelease(g_pDevice);
 }
 
+// リソース設定時のバリア関数
 void setResourceBarrier(ID3D12GraphicsCommandList* commandList, ID3D12Resource* resource, UINT StateBefore, UINT StateAfter)
 {
 	D3D12_RESOURCE_BARRIER_DESC barrierDesc = {};
@@ -536,35 +456,67 @@ void setResourceBarrier(ID3D12GraphicsCommandList* commandList, ID3D12Resource* 
 	commandList->ResourceBarrier(1, &barrierDesc);
 }
 
+#if 0
+///
+/// Fill the command list with all the render commands and dependent state
+///
+void populateCommandLists()
+{
+	// record commands
+	float clearColor[] = { 0.0f, 0.2f, 0.4f, 1.0f };
+	mCommandList->ClearRenderTargetView(mDescriptorHeap->GetCPUDescriptorHandleForHeapStart(), clearColor, nullptr, 0);
+	mCommandList->SetRenderTargets(&mDescriptorHeap->GetCPUDescriptorHandleForHeapStart(), true, 1, nullptr);
+	mCommandList->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	mCommandList->SetVertexBuffers(0, &mDescViewBufVert, 1);
+	mCommandList->DrawInstanced(3, 1, 0, 0);
+
+	// indicate that the render target will now be used to present when the command list is done executing
+	setResourceBarrier(mCommandList.Get(), mRenderTarget.Get(), D3D12_RESOURCE_USAGE_RENDER_TARGET, D3D12_RESOURCE_USAGE_PRESENT);
+
+	// all we need to do now is execute the command list
+	ThrowIfFailed(mCommandList->Close());
+}
+#endif
 
 // 描画
 void Render()
 {
-#if 1
-	// ビューポート設定
-	D3D12_VIEWPORT vp;
-	vp.TopLeftX = 0;			// X座標
-	vp.TopLeftY = 0;			// Y座標
-	vp.Width = SCREEN_WIDTH;	// 幅
-	vp.Height = SCREEN_HEIGHT;	// 高さ
-	vp.MinDepth = 0.0f;			// 最少深度
-	vp.MaxDepth = 1.0f;			// 最大深度
-	g_pGraphicsCommandList->RSSetViewports(1, &vp);
+	// コマンドリストアロケータは、関連するコマンドリストをGPU上での実行を終了したときにリセットすることができます。
+	// アプリはGPU実行の進行状況を判断するためにフェンスを使用する必要があります
+	g_pCommandAllocator->Reset();
 
-	// Indicate that this resource will be in use as a render target.
-	//setResourceBarrier(mCommandList, mRenderTarget, D3D12_RESOURCE_USAGE_PRESENT, D3D12_RESOURCE_USAGE_RENDER_TARGET);
+	// 描画コマンドを積む前にリセット
+	g_pGraphicsCommandList->Reset(g_pCommandAllocator, g_pPipelineState);
+
+	// 矩形を設定
+	CD3D12_RECT clearRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+	g_pGraphicsCommandList->RSSetViewports(1, &g_viewPort);
+	g_pGraphicsCommandList->RSSetScissorRects(1, &clearRect);
+
+	// レンダーターゲットへリソースを設定
+	setResourceBarrier(
+		g_pGraphicsCommandList,
+		g_pBackBufferResource,
+		D3D12_RESOURCE_USAGE_PRESENT,
+		D3D12_RESOURCE_USAGE_RENDER_TARGET);
 
 	// クリア.
 	float clearColor[] = { 0.0f, 0.2f, 0.4f, 1.0f };
-	CD3D12_RECT clearRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
-	// レンダーターゲットビューを設定
-	g_pGraphicsCommandList->SetRenderTargets(&g_hBackBufferRTV, TRUE, 1, nullptr);
-	g_pGraphicsCommandList->ClearRenderTargetView(g_hBackBufferRTV, clearColor, &clearRect, 1);
 
-	// Indicate that the render target will now be used to present when the command list is done executing.
-	setResourceBarrier(g_pGraphicsCommandList, g_pBackBufferResource, D3D12_RESOURCE_USAGE_RENDER_TARGET, D3D12_RESOURCE_USAGE_PRESENT);
+	// レンダーターゲットビューを設定して画面をクリア
+	g_pGraphicsCommandList->SetRenderTargets(
+		&g_pDescripterHeapArray[DESCRIPTOR_HEAP_TYPE_RTV]->GetCPUDescriptorHandleForHeapStart(),
+		TRUE,
+		1,
+		nullptr);
 
-	// Execute the command list.
+	g_pGraphicsCommandList->ClearRenderTargetView(
+		g_pDescripterHeapArray[DESCRIPTOR_HEAP_TYPE_RTV]->GetCPUDescriptorHandleForHeapStart(),
+		clearColor,
+		&clearRect,
+		1);
+	
+	// 描画コマンドリストに積まれたものを実行
 	g_pGraphicsCommandList->Close();
 
 	ID3D12CommandList* pTemp = g_pGraphicsCommandList;
@@ -572,10 +524,6 @@ void Render()
 
 	// フリップ
 	g_pGISwapChain->Present(1, 0);
-	
-	g_pCommandAllocator->Reset();
-	g_pGraphicsCommandList->Reset(g_pCommandAllocator, g_pPipelineState);
-#endif
 }
 
 // ウィンドウプロシージャ
