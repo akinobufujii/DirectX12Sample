@@ -1,20 +1,28 @@
+//==============================================================================
 // インクルード
+//==============================================================================
 #include <tchar.h>
 #include <Windows.h>
 
 #include <memory>
 
 #include <d3d12.h>
-#include <dxgi1_2.h>
 #include <Dxgi1_3.h>
 #include <D3d12SDKLayers.h>
 #include <d3dcompiler.h>
 
+#include <DirectXMath.h>
+
+//==============================================================================
+// ライブラリリンク
+//==============================================================================
 #pragma comment(lib, "d3d12.lib")
 #pragma comment(lib, "DXGI.lib")
 #pragma comment(lib, "D3DCompiler.lib")
 
+//==============================================================================
 // 定義
+//==============================================================================
 // 入力レイアウト
 const D3D12_INPUT_ELEMENT_DESC INPUT_LAYOUT[] =
 {
@@ -22,11 +30,22 @@ const D3D12_INPUT_ELEMENT_DESC INPUT_LAYOUT[] =
 	{ "COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 12, D3D12_INPUT_PER_VERTEX_DATA, 0 }
 };
 
-// 定数
-static const int SCREEN_WIDTH = 1280;
-static const int SCREEN_HEIGHT = 720;
-static const LPTSTR	CLASS_NAME = TEXT("DirectX");
+// 頂点定義
+struct UserVertex
+{
+	DirectX::XMFLOAT4 pos;		// 頂点座標
+	DirectX::XMFLOAT4 color;	// 頂点カラー
+};
 
+
+//==============================================================================
+// 定数
+//==============================================================================
+static const int SCREEN_WIDTH = 1280;				// 画面幅
+static const int SCREEN_HEIGHT = 720;				// 画面高さ
+static const LPTSTR	CLASS_NAME = TEXT("DirectX");	// ウィンドウネーム
+
+// ディスクリプタヒープタイプ
 enum DESCRIPTOR_HEAP_TYPE 
 {
 	DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,	// UAVなど用
@@ -37,7 +56,9 @@ enum DESCRIPTOR_HEAP_TYPE
 	DESCRIPTOR_HEAP_TYPE_SET = DESCRIPTOR_HEAP_TYPE_SAMPLER + 1,
 };
 
+//==============================================================================
 // グローバル変数
+//==============================================================================
 ID3D12Device*				g_pDevice;											// デバイス
 ID3D12CommandAllocator*		g_pCommandAllocator;								// コマンドアロケータ
 ID3D12CommandQueue*			g_pCommandQueue;									// コマンドキュー
@@ -56,6 +77,10 @@ ID3D12Resource*				g_pDepthStencilResource;							// デプスステンシルのリソース
 
 LPD3DBLOB					g_pVSBlob;											// 頂点シェーダブロブ
 LPD3DBLOB					g_pPSBlob;											// ピクセルシェーダブロブ
+
+ID3D12Resource*				g_pVertexBufferResource;							// 頂点バッファのリソース
+D3D12_VERTEX_BUFFER_VIEW	g_VertexBufferView;									// 頂点バッファビュー
+ID3D12Fence*				g_pFence;											// フェンスオブジェクト
 
 // エラーメッセージ
 // エラーが起こったらtrueを返すようにする
@@ -380,51 +405,7 @@ bool initDirectX(HWND hWnd)
 	g_viewPort.MaxDepth = 1.0f;			// 最大深度
 	
 #else
-	// create geometry for a triangle
-	VERTEX triangleVerts[] =
-	{
-		{ 0.0f, 0.5f, 0.0f,{ 1.0f, 0.0f, 0.0f, 1.0f } },
-		{ 0.45f, -0.5, 0.0f,{ 0.0f, 1.0f, 0.0f, 1.0f } },
-		{ -0.45f, -0.5f, 0.0f,{ 0.0f, 0.0f, 1.0f, 1.0f } }
-	};
-
-	// actually create the vert buffer
-	// Note: using upload heaps to transfer static data like vert buffers is not recommended.
-	// Every time the GPU needs it, the upload heap will be marshalled over.  Please read up on Default Heap usage.
-	// An upload heap is used here for code simplicity and because there are very few verts to actually transfer
-	ThrowIfFailed(mDevice->CreateCommittedResource(
-		&CD3D12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
-		D3D12_HEAP_MISC_NONE,
-		&CD3D12_RESOURCE_DESC::Buffer(3 * sizeof(VERTEX)),
-		D3D12_RESOURCE_USAGE_GENERIC_READ,
-		nullptr,    // Clear value
-		IID_PPV_ARGS(mBufVerts.GetAddressOf())));
-
-	// copy the triangle data to the vertex buffer
-	UINT8* dataBegin;
-	mBufVerts->Map(0, nullptr, reinterpret_cast<void**>(&dataBegin));
-	memcpy(dataBegin, triangleVerts, sizeof(triangleVerts));
-	mBufVerts->Unmap(0, nullptr);
-
-	// create vertex buffer view
-	mDescViewBufVert.BufferLocation = mBufVerts->GetGPUVirtualAddress();
-	mDescViewBufVert.StrideInBytes = sizeof(VERTEX);
-	mDescViewBufVert.SizeInBytes = sizeof(triangleVerts);
-
-	// create fencing object
-	ThrowIfFailed(mDevice->CreateFence(0, D3D12_FENCE_MISC_NONE, &mFence));
-	mCurrentFence = 1;
-
-	// close the command list and use it to execute the initial GPU setup
-	ThrowIfFailed(mCommandList->Close());
-	ID3D12CommandList* ppCommandLists[] = { mCommandList.Get() };
-	mCommandQueue->ExecuteCommandLists(_countof(ppCommandLists), ppCommandLists);
-
-	// create event handle
-	mHandleEvent = CreateEventEx(nullptr, FALSE, FALSE, EVENT_ALL_ACCESS);
-
-	// wait for the command list to execute; we are reusing the same command list in our main loop but for now, we just want to wait for setup to complete before continuing
-	waitForPrevFrame();
+	
 
 #endif
 	return true;
@@ -450,6 +431,69 @@ void cleanupDirectX()
 	safeRelease(g_pCommandQueue);
 	safeRelease(g_pCommandAllocator);
 	safeRelease(g_pDevice);
+}
+
+// リソースセットアップ
+bool setupResource() 
+{
+	HRESULT hr;
+
+	// 頂点バッファ作成
+	UserVertex vertex[] =
+	{
+		{ DirectX::XMFLOAT4( 0.0f,  0.5f, 0.0f, 1.0f), DirectX::XMFLOAT4(1.0f, 0.0f, 0.0f, 1.0f) },
+		{ DirectX::XMFLOAT4( 0.5f, -0.5,  0.0f, 1.0f), DirectX::XMFLOAT4(0.0f, 1.0f, 0.0f, 1.0f) },
+		{ DirectX::XMFLOAT4(-0.5f, -0.5f, 0.0f, 1.0f), DirectX::XMFLOAT4(0.0f, 0.0f, 1.0f, 1.0f) },
+	};
+
+	// ※ドキュメントには静的データをアップロードヒープに渡すのは推奨しないとのこと
+	// 　ヒープの消費量がよろしくないようです
+	hr = g_pDevice->CreateCommittedResource(
+		&CD3D12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
+		D3D12_HEAP_MISC_NONE,
+		&CD3D12_RESOURCE_DESC::Buffer(ARRAYSIZE(vertex) * sizeof(UserVertex)),
+		D3D12_RESOURCE_USAGE_GENERIC_READ,
+		nullptr,
+		__uuidof(ID3D12Resource),
+		reinterpret_cast<void**>(&g_pVertexBufferResource));
+
+	if (showErrorMessage(hr, TEXT("頂点バッファ作成失敗")))
+	{
+		return false;
+	}
+
+	// 頂点バッファに三角形情報をコピーする
+	UINT8* dataBegin;
+	if (SUCCEEDED(g_pVertexBufferResource->Map(0, nullptr, reinterpret_cast<void**>(&dataBegin)))) 
+	{
+		memcpy(dataBegin, vertex, sizeof(vertex));
+		g_pVertexBufferResource->Unmap(0, nullptr);
+	}
+	else 
+	{
+		showErrorMessage(E_FAIL, TEXT("頂点バッファのマッピングに失敗"));
+		return false;
+	}
+
+	// 頂点バッファビュー設定
+	g_VertexBufferView.BufferLocation = g_pVertexBufferResource->GetGPUVirtualAddress();
+	g_VertexBufferView.StrideInBytes = sizeof(UserVertex);
+	g_VertexBufferView.SizeInBytes = sizeof(vertex);
+
+	// フェンスオブジェクト作成
+	g_pDevice->CreateFence(0, D3D12_FENCE_MISC_NONE, __uuidof(ID3D12Fence), reinterpret_cast<void**>(&g_pFence));
+	
+	if (showErrorMessage(hr, TEXT("フェンスオブジェクト作成失敗")))
+	{
+		return false;
+	}
+
+	// コマンドリストを閉じて、最初のGPU処理を記載する
+	/*g_pGraphicsCommandList->Close();
+	ID3D12CommandList* ppCommandLists[] = { g_pGraphicsCommandList };
+	g_pCommandQueue->ExecuteCommandLists(ARRAYSIZE(ppCommandLists), ppCommandLists);*/
+
+	return true;
 }
 
 // リソース設定時のバリア関数
@@ -518,6 +562,11 @@ void Render()
 		clearColor,
 		&clearRect,
 		1);
+
+	// 三角形描画
+	g_pGraphicsCommandList->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	g_pGraphicsCommandList->SetVertexBuffers(0, &g_VertexBufferView, 1);
+	g_pGraphicsCommandList->DrawInstanced(3, 1, 0, 0);
 	
 	// 描画コマンドリストに積まれたものを実行
 	g_pGraphicsCommandList->Close();
@@ -593,11 +642,16 @@ int APIENTRY _tWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPTSTR lpCm
 
 	if (hwnd == NULL)
 	{
-		return 0;
+		return 1;
 	}
 
 	// DirectX初期化
 	if (initDirectX(hwnd) == false)
+	{
+		return 1;
+	}
+
+	if (setupResource() == false) 
 	{
 		return 1;
 	}
