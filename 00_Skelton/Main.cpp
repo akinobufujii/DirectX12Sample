@@ -56,6 +56,8 @@ enum DESCRIPTOR_HEAP_TYPE
 	DESCRIPTOR_HEAP_TYPE_SET = DESCRIPTOR_HEAP_TYPE_SAMPLER + 1,
 };
 
+//static const UINT	COMMAND_ALLOCATOR_MAX = 2;	// コマンドアロケータ数
+
 //==============================================================================
 // グローバル変数
 //==============================================================================
@@ -71,6 +73,7 @@ ID3D12DescriptorHeap*		g_pDescripterHeapArray[DESCRIPTOR_HEAP_TYPE_MAX];	// ディ
 ID3D12GraphicsCommandList*	g_pGraphicsCommandList;								// 描画コマンドリスト
 ID3D12RootSignature*		g_pRootSignature;									// ルートシグニチャ
 D3D12_VIEWPORT				g_viewPort;											// ビューポート
+HANDLE						g_hFenceEvent;										// フェンスイベントハンドル
 
 ID3D12Resource*				g_pBackBufferResource;								// バックバッファのリソース
 ID3D12Resource*				g_pDepthStencilResource;							// デプスステンシルのリソース
@@ -81,6 +84,8 @@ LPD3DBLOB					g_pPSBlob;											// ピクセルシェーダブロブ
 ID3D12Resource*				g_pVertexBufferResource;							// 頂点バッファのリソース
 D3D12_VERTEX_BUFFER_VIEW	g_VertexBufferView;									// 頂点バッファビュー
 ID3D12Fence*				g_pFence;											// フェンスオブジェクト
+
+UINT						g_CurrentAllocator = 0;								// 現在のアロケータ
 
 // エラーメッセージ
 // エラーが起こったらtrueを返すようにする
@@ -190,7 +195,7 @@ bool initDirectX(HWND hWnd)
 	commandQueueDesk.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;	// コマンドリストタイプ
 	commandQueueDesk.Priority = 0;							// 優先度
 	commandQueueDesk.Flags = D3D12_COMMAND_QUEUE_NONE;		// フラグ
-	commandQueueDesk.NodeMask = 0x00000001;					// ノードマスク
+	commandQueueDesk.NodeMask = 0x00000000;					// ノードマスク
 
 	hr = g_pDevice->CreateCommandQueue(
 		&commandQueueDesk,
@@ -269,15 +274,15 @@ bool initDirectX(HWND hWnd)
 	{
 		return false;
 	}
-
+	
 	// 頂点シェーダコンパイル
-	if (compileShaderFlomFile(L"VertexShader.hlsl", "main", "vs_5_0", &g_pVSBlob) == false)
+	if (compileShaderFlomFile(L"VertexShader.hlsl", "main", "vs_5_1", &g_pVSBlob) == false)
 	{
 		showErrorMessage(E_FAIL, TEXT("頂点シェーダコンパイル失敗"));
 	}
 
 	// ピクセルシェーダコンパイル
-	if (compileShaderFlomFile(L"PixelShader.hlsl", "main", "ps_5_0", &g_pPSBlob) == false)
+	if (compileShaderFlomFile(L"PixelShader.hlsl", "main", "ps_5_1", &g_pPSBlob) == false)
 	{
 		showErrorMessage(E_FAIL, TEXT("頂点シェーダコンパイル失敗"));
 	}
@@ -328,11 +333,8 @@ bool initDirectX(HWND hWnd)
 		return false;
 	}
 
-	g_pGraphicsCommandList->SetPipelineState(g_pPipelineState);
-
-#if 1
 	// ディスクリプタヒープ作成
-	D3D12_DESCRIPTOR_HEAP_DESC heapDesc = {};
+	D3D12_DESCRIPTOR_HEAP_DESC heapDesc;
 	ZeroMemory(&heapDesc, sizeof(heapDesc));
 
 	heapDesc.NumDescriptors = 1;
@@ -388,12 +390,7 @@ bool initDirectX(HWND hWnd)
 		1,
 		g_pDescripterHeapArray[DESCRIPTOR_HEAP_TYPE_DSV]->GetCPUDescriptorHandleForHeapStart());
 #else
-	// レンダーターゲットビューを設定
-	g_pGraphicsCommandList->SetRenderTargets(
-		&g_pDescripterHeapArray[DESCRIPTOR_HEAP_TYPE_RTV]->GetCPUDescriptorHandleForHeapStart(),
-		TRUE,
-		1,
-		nullptr);
+	
 #endif
 
 	// ビューポート設定
@@ -403,11 +400,7 @@ bool initDirectX(HWND hWnd)
 	g_viewPort.Height = SCREEN_HEIGHT;	// 高さ
 	g_viewPort.MinDepth = 0.0f;			// 最少深度
 	g_viewPort.MaxDepth = 1.0f;			// 最大深度
-	
-#else
-	
 
-#endif
 	return true;
 }
 
@@ -423,12 +416,13 @@ void cleanupDirectX()
 	safeRelease(g_pRootSignature);
 	safeRelease(g_pPSBlob);
 	safeRelease(g_pVSBlob);
-	safeRelease(g_pGraphicsCommandList);
+	
 	safeRelease(g_pGISwapChain);
 	safeRelease(g_pGIFactory);
 	safeRelease(g_pGIAdapter);
 	safeRelease(g_pGIDevice);
 	safeRelease(g_pCommandQueue);
+	safeRelease(g_pGraphicsCommandList);
 	safeRelease(g_pCommandAllocator);
 	safeRelease(g_pDevice);
 }
@@ -488,61 +482,59 @@ bool setupResource()
 		return false;
 	}
 
-	// コマンドリストを閉じて、最初のGPU処理を記載する
-	/*g_pGraphicsCommandList->Close();
-	ID3D12CommandList* ppCommandLists[] = { g_pGraphicsCommandList };
-	g_pCommandQueue->ExecuteCommandLists(ARRAYSIZE(ppCommandLists), ppCommandLists);*/
+	// フェンスイベントハンドル作成
+	g_hFenceEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
 
 	return true;
+}
+
+// リソースクリーンアップ
+void cleanupResource()
+{
+	CloseHandle(g_hFenceEvent);
+	safeRelease(g_pFence);
+	safeRelease(g_pVertexBufferResource);
 }
 
 // リソース設定時のバリア関数
 void setResourceBarrier(ID3D12GraphicsCommandList* commandList, ID3D12Resource* resource, UINT StateBefore, UINT StateAfter)
 {
-	D3D12_RESOURCE_BARRIER_DESC barrierDesc = {};
+	D3D12_RESOURCE_BARRIER_DESC descBarrier = {};
 
-	barrierDesc.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-	barrierDesc.Transition.pResource = resource;
-	barrierDesc.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-	barrierDesc.Transition.StateBefore = StateBefore;
-	barrierDesc.Transition.StateAfter = StateAfter;
+	descBarrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+	descBarrier.Transition.pResource = resource;
+	descBarrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+	descBarrier.Transition.StateBefore = StateBefore;
+	descBarrier.Transition.StateAfter = StateAfter;
 
-	commandList->ResourceBarrier(1, &barrierDesc);
+	commandList->ResourceBarrier(1, &descBarrier);
 }
-
-#if 0
-///
-/// Fill the command list with all the render commands and dependent state
-///
-void populateCommandLists()
-{
-	// record commands
-	float clearColor[] = { 0.0f, 0.2f, 0.4f, 1.0f };
-	mCommandList->ClearRenderTargetView(mDescriptorHeap->GetCPUDescriptorHandleForHeapStart(), clearColor, nullptr, 0);
-	mCommandList->SetRenderTargets(&mDescriptorHeap->GetCPUDescriptorHandleForHeapStart(), true, 1, nullptr);
-	mCommandList->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-	mCommandList->SetVertexBuffers(0, &mDescViewBufVert, 1);
-	mCommandList->DrawInstanced(3, 1, 0, 0);
-
-	// indicate that the render target will now be used to present when the command list is done executing
-	setResourceBarrier(mCommandList.Get(), mRenderTarget.Get(), D3D12_RESOURCE_USAGE_RENDER_TARGET, D3D12_RESOURCE_USAGE_PRESENT);
-
-	// all we need to do now is execute the command list
-	ThrowIfFailed(mCommandList->Close());
-}
-#endif
 
 // 描画
 void Render()
 {
+	// 現在のコマンドリストを獲得
+	ID3D12GraphicsCommandList* pCommand = g_pGraphicsCommandList;
+
+	// パイプラインステートオブジェクトとルートシグニチャをセット
+	pCommand->SetPipelineState(g_pPipelineState);
+	pCommand->SetGraphicsRootSignature(g_pRootSignature);
+
+	// レンダーターゲットビューを設定
+	pCommand->SetRenderTargets(
+		&g_pDescripterHeapArray[DESCRIPTOR_HEAP_TYPE_RTV]->GetCPUDescriptorHandleForHeapStart(),
+		TRUE,
+		1,
+		nullptr);
+
 	// 矩形を設定
 	CD3D12_RECT clearRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
-	g_pGraphicsCommandList->RSSetViewports(1, &g_viewPort);
-	g_pGraphicsCommandList->RSSetScissorRects(1, &clearRect);
+	pCommand->RSSetViewports(1, &g_viewPort);
+	pCommand->RSSetScissorRects(1, &clearRect);
 
 	// レンダーターゲットへリソースを設定
 	setResourceBarrier(
-		g_pGraphicsCommandList,
+		pCommand,
 		g_pBackBufferResource,
 		D3D12_RESOURCE_USAGE_PRESENT,
 		D3D12_RESOURCE_USAGE_RENDER_TARGET);
@@ -551,35 +543,44 @@ void Render()
 	float clearColor[] = { 0.0f, 0.2f, 0.4f, 1.0f };
 
 	// レンダーターゲットビューを設定して画面をクリア
-	g_pGraphicsCommandList->SetRenderTargets(
+	pCommand->SetRenderTargets(
 		&g_pDescripterHeapArray[DESCRIPTOR_HEAP_TYPE_RTV]->GetCPUDescriptorHandleForHeapStart(),
 		TRUE,
 		1,
 		nullptr);
 
-	g_pGraphicsCommandList->ClearRenderTargetView(
+	pCommand->ClearRenderTargetView(
 		g_pDescripterHeapArray[DESCRIPTOR_HEAP_TYPE_RTV]->GetCPUDescriptorHandleForHeapStart(),
 		clearColor,
 		&clearRect,
 		1);
 
 	// 三角形描画
-	g_pGraphicsCommandList->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-	g_pGraphicsCommandList->SetVertexBuffers(0, &g_VertexBufferView, 1);
-	g_pGraphicsCommandList->DrawInstanced(3, 1, 0, 0);
+	pCommand->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	pCommand->SetVertexBuffers(0, &g_VertexBufferView, 1);
+	pCommand->DrawInstanced(3, 1, 0, 0);
 	
-	// 描画コマンドリストに積まれたものを実行
-	g_pGraphicsCommandList->Close();
+	// present前の処理
+	setResourceBarrier(
+		pCommand,
+		g_pBackBufferResource,
+		D3D12_RESOURCE_USAGE_RENDER_TARGET,
+		D3D12_RESOURCE_USAGE_PRESENT);
 
-	ID3D12CommandList* pTemp = g_pGraphicsCommandList;
-	g_pCommandQueue->ExecuteCommandLists(1, &pTemp);
+	// 描画コマンドを実行してフリップ
+	pCommand->Close();
+	g_pCommandQueue->ExecuteCommandLists(1, CommandListCast(&pCommand));
+	g_pGISwapChain->Present(1, 0);
 
-	// フリップ
-	g_pGISwapChain->Present(0, 0);
+	// コマンドキューの処理を待つ
+	g_pFence->Signal(0);
+	g_pFence->SetEventOnCompletion(1, g_hFenceEvent);
+	g_pCommandQueue->Signal(g_pFence, 1);
+	WaitForSingleObject(g_hFenceEvent, INFINITE);
 
-	// コマンドリストアロケータとコマンドリストをリセット
+	// コマンドアロケータとコマンドリストをリセット
+	pCommand->Reset(g_pCommandAllocator, g_pPipelineState);
 	g_pCommandAllocator->Reset();
-	g_pGraphicsCommandList->Reset(g_pCommandAllocator, g_pPipelineState);
 }
 
 // ウィンドウプロシージャ
@@ -674,6 +675,7 @@ int APIENTRY _tWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPTSTR lpCm
 	} while (msg.message != WM_QUIT);
 
 	// 解放処理
+	cleanupResource();
 	cleanupDirectX();
 
 	// 登録したクラスを解除
