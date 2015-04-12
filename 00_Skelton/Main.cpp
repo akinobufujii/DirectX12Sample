@@ -78,6 +78,7 @@ HANDLE						g_hFenceEvent;										// フェンスイベントハンドル
 ID3D12Resource*				g_pBackBufferResource;								// バックバッファのリソース
 D3D12_CPU_DESCRIPTOR_HANDLE	g_hBackBuffer;										// バックバッファハンドル
 ID3D12Resource*				g_pDepthStencilResource;							// デプスステンシルのリソース
+D3D12_CPU_DESCRIPTOR_HANDLE	g_hDepthStencil;									// デプスステンシルのハンドル
 
 LPD3DBLOB					g_pVSBlob;											// 頂点シェーダブロブ
 LPD3DBLOB					g_pPSBlob;											// ピクセルシェーダブロブ
@@ -169,9 +170,8 @@ bool initDirectX(HWND hWnd)
 		D3D_DRIVER_TYPE_WARP,
 		D3D12_CREATE_DEVICE_DEBUG,	// デバッグデバイス
 		D3D_FEATURE_LEVEL_11_1,
-		D3D12_SDK_VERSION, 
-		__uuidof(ID3D12Device), 
-		reinterpret_cast<void**>(&g_pDevice));
+		D3D12_SDK_VERSION,
+		IID_PPV_ARGS(&g_pDevice));
 
 	if(showErrorMessage(hr, TEXT("デバイス作成失敗")))
 	{
@@ -181,8 +181,7 @@ bool initDirectX(HWND hWnd)
 	// コマンドアロケータ作成
 	hr = g_pDevice->CreateCommandAllocator(
 		D3D12_COMMAND_LIST_TYPE_DIRECT,
-		__uuidof(ID3D12CommandAllocator),
-		reinterpret_cast<void**>(&g_pCommandAllocator));
+		IID_PPV_ARGS(&g_pCommandAllocator));
 
 	if (showErrorMessage(hr, TEXT("コマンドアロケータ作成失敗")))
 	{
@@ -198,10 +197,7 @@ bool initDirectX(HWND hWnd)
 	commandQueueDesk.Flags = D3D12_COMMAND_QUEUE_NONE;		// フラグ
 	commandQueueDesk.NodeMask = 0x00000000;					// ノードマスク
 
-	hr = g_pDevice->CreateCommandQueue(
-		&commandQueueDesk,
-		__uuidof(ID3D12CommandQueue),
-		reinterpret_cast<void**>(&g_pCommandQueue));
+	hr = g_pDevice->CreateCommandQueue(&commandQueueDesk, IID_PPV_ARGS(&g_pCommandQueue));
 
 	if (showErrorMessage(hr, TEXT("コマンドキュー作成失敗")))
 	{
@@ -234,10 +230,8 @@ bool initDirectX(HWND hWnd)
 	}
 #else
 	// GIファクトリ獲得
-	hr = CreateDXGIFactory2(
-		DXGI_CREATE_FACTORY_DEBUG,					// デバッグモードのファクトリ作成
-		__uuidof(IDXGIFactory2),
-		reinterpret_cast<void**>(&g_pGIFactory));
+	// デバッグモードのファクトリ作成
+	hr = CreateDXGIFactory2(DXGI_CREATE_FACTORY_DEBUG, IID_PPV_ARGS(&g_pGIFactory));
 	if (showErrorMessage(hr, TEXT("GIファクトリ獲得失敗")))
 	{
 		return false;
@@ -268,8 +262,7 @@ bool initDirectX(HWND hWnd)
 		D3D12_COMMAND_LIST_TYPE_DIRECT,
 		g_pCommandAllocator,
 		g_pPipelineState,
-		__uuidof(ID3D12GraphicsCommandList),
-		reinterpret_cast<void**>(&g_pGraphicsCommandList));
+		IID_PPV_ARGS(&g_pGraphicsCommandList));
 
 	if (showErrorMessage(hr, TEXT("コマンドラインリスト作成失敗")))
 	{
@@ -297,8 +290,7 @@ bool initDirectX(HWND hWnd)
 		0x00000001,
 		pOutBlob->GetBufferPointer(),
 		pOutBlob->GetBufferSize(),
-		__uuidof(ID3D12RootSignature),
-		reinterpret_cast<void**>(&g_pRootSignature));
+		IID_PPV_ARGS(&g_pRootSignature));
 
 	safeRelease(pOutBlob);
 	if (showErrorMessage(hr, TEXT("ルートシグニチャ作成失敗")))
@@ -324,10 +316,7 @@ bool initDirectX(HWND hWnd)
 	descPSO.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;														// レンダーターゲットフォーマット
 	descPSO.SampleDesc.Count = 1;																			// サンプルカウント
 
-	hr = g_pDevice->CreateGraphicsPipelineState(
-		&descPSO,
-		__uuidof(ID3D12PipelineState),
-		reinterpret_cast<void**>(&g_pPipelineState));
+	hr = g_pDevice->CreateGraphicsPipelineState(&descPSO, IID_PPV_ARGS(&g_pPipelineState));
 
 	if (showErrorMessage(hr, TEXT("パイプラインステートオブジェクト作成失敗")))
 	{
@@ -344,10 +333,8 @@ bool initDirectX(HWND hWnd)
 	{
 		heapDesc.Flags = (i == D3D12_RTV_DESCRIPTOR_HEAP) ? D3D12_DESCRIPTOR_HEAP_NONE : D3D12_DESCRIPTOR_HEAP_SHADER_VISIBLE;
 		heapDesc.Type = static_cast<D3D12_DESCRIPTOR_HEAP_TYPE>(i);
-		hr = g_pDevice->CreateDescriptorHeap(
-			&heapDesc,
-			__uuidof(ID3D12DescriptorHeap),
-			reinterpret_cast<void**>(&g_pDescripterHeapArray[i]));
+		
+		hr = g_pDevice->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(&g_pDescripterHeapArray[i]));
 		if (showErrorMessage(hr, TEXT("ディスクリプタヒープ作成失敗")))
 		{
 			return false;
@@ -358,7 +345,7 @@ bool initDirectX(HWND hWnd)
 	g_pGraphicsCommandList->SetDescriptorHeaps(g_pDescripterHeapArray, DESCRIPTOR_HEAP_TYPE_SET);
 
 	// レンダーターゲットビューを作成
-	hr = g_pGISwapChain->GetBuffer(0, __uuidof(ID3D12Resource), reinterpret_cast<void**>(&g_pBackBufferResource));
+	hr = g_pGISwapChain->GetBuffer(0, IID_PPV_ARGS(&g_pBackBufferResource));
 	if (showErrorMessage(hr, TEXT("レンダーターゲットビュー作成失敗")))
 	{
 		return false;
@@ -366,6 +353,7 @@ bool initDirectX(HWND hWnd)
 	
 	g_hBackBuffer = g_pDescripterHeapArray[DESCRIPTOR_HEAP_TYPE_RTV]->GetCPUDescriptorHandleForHeapStart();
 	g_pDevice->CreateRenderTargetView(g_pBackBufferResource, nullptr, g_hBackBuffer);
+
 #if 0
 	// 深度ステンシルビュー作成
 	hr = g_pGISwapChain->GetBuffer(0, __uuidof(ID3D12Resource), reinterpret_cast<void**>(&g_pDepthStencilResource));
@@ -382,16 +370,8 @@ bool initDirectX(HWND hWnd)
 	depthStencilDesc.Flags = D3D12_DSV_NONE;					// アクセスフラグ
 	depthStencilDesc.Texture2D.MipSlice = 0;								// 使用する最初のミップマップ
 
-	g_pDevice->CreateDepthStencilView(g_pDepthStencilResource, &depthStencilDesc, g_pDescripterHeapArray[DESCRIPTOR_HEAP_TYPE_DSV]->GetCPUDescriptorHandleForHeapStart());
-
-	// レンダーターゲットビューを設定
-	g_pGraphicsCommandList->SetRenderTargets(
-		&g_pDescripterHeapArray[DESCRIPTOR_HEAP_TYPE_RTV]->GetCPUDescriptorHandleForHeapStart(),
-		TRUE, 
-		1,
-		g_pDescripterHeapArray[DESCRIPTOR_HEAP_TYPE_DSV]->GetCPUDescriptorHandleForHeapStart());
-#else
-	
+	g_hDepthStencil = g_pDescripterHeapArray[DESCRIPTOR_HEAP_TYPE_DSV]->GetCPUDescriptorHandleForHeapStart();
+	g_pDevice->CreateDepthStencilView(g_pDepthStencilResource, &depthStencilDesc, g_hDepthStencil);
 #endif
 
 	// ビューポート設定
@@ -542,15 +522,9 @@ void Render()
 
 	// クリア
 	static float count = 0;
-
 	count = fmod(count + 0.01f, 1.0f);
 	float clearColor[] = { count, 0.2f, 0.4f, 1.0f };
-
-	pCommand->ClearRenderTargetView(
-		g_hBackBuffer,
-		clearColor,
-		&clearRect,
-		1);
+	pCommand->ClearRenderTargetView(g_hBackBuffer, clearColor, &clearRect, 1);
 
 	// 三角形描画
 	pCommand->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
