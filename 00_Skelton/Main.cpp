@@ -382,12 +382,25 @@ bool initDirectX(HWND hWnd)
 	g_viewPort.MinDepth = 0.0f;			// 最少深度
 	g_viewPort.MaxDepth = 1.0f;			// 最大深度
 
+	// フェンスオブジェクト作成
+	g_pDevice->CreateFence(0, D3D12_FENCE_MISC_NONE, IID_PPV_ARGS(&g_pFence));
+
+	if (showErrorMessage(hr, TEXT("フェンスオブジェクト作成失敗")))
+	{
+		return false;
+	}
+
+	// フェンスイベントハンドル作成
+	g_hFenceEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
+
 	return true;
 }
 
 // DirectX12クリーンアップ
 void cleanupDirectX()
 {
+	CloseHandle(g_hFenceEvent);
+	safeRelease(g_pFence);
 	safeRelease(g_pBackBufferResource);
 	for (int i = 0; i < DESCRIPTOR_HEAP_TYPE_MAX; ++i)
 	{
@@ -455,25 +468,12 @@ bool setupResource()
 	g_VertexBufferView.StrideInBytes = sizeof(UserVertex);
 	g_VertexBufferView.SizeInBytes = sizeof(vertex);
 
-	// フェンスオブジェクト作成
-	g_pDevice->CreateFence(0, D3D12_FENCE_MISC_NONE, __uuidof(ID3D12Fence), reinterpret_cast<void**>(&g_pFence));
-	
-	if (showErrorMessage(hr, TEXT("フェンスオブジェクト作成失敗")))
-	{
-		return false;
-	}
-
-	// フェンスイベントハンドル作成
-	g_hFenceEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
-
 	return true;
 }
 
 // リソースクリーンアップ
 void cleanupResource()
 {
-	CloseHandle(g_hFenceEvent);
-	safeRelease(g_pFence);
 	safeRelease(g_pVertexBufferResource);
 }
 
@@ -502,11 +502,7 @@ void Render()
 	pCommand->SetGraphicsRootSignature(g_pRootSignature);
 
 	// レンダーターゲットビューを設定
-	pCommand->SetRenderTargets(
-		&g_hBackBuffer,
-		TRUE,
-		1,
-		nullptr);
+	pCommand->SetRenderTargets(&g_hBackBuffer, TRUE, 1, nullptr);
 
 	// 矩形を設定
 	CD3D12_RECT clearRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
