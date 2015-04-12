@@ -76,6 +76,7 @@ D3D12_VIEWPORT				g_viewPort;											// ビューポート
 HANDLE						g_hFenceEvent;										// フェンスイベントハンドル
 
 ID3D12Resource*				g_pBackBufferResource;								// バックバッファのリソース
+D3D12_CPU_DESCRIPTOR_HANDLE	g_hBackBuffer;										// バックバッファハンドル
 ID3D12Resource*				g_pDepthStencilResource;							// デプスステンシルのリソース
 
 LPD3DBLOB					g_pVSBlob;											// 頂点シェーダブロブ
@@ -363,8 +364,8 @@ bool initDirectX(HWND hWnd)
 		return false;
 	}
 	
-	g_pDevice->CreateRenderTargetView(g_pBackBufferResource, nullptr, g_pDescripterHeapArray[DESCRIPTOR_HEAP_TYPE_RTV]->GetCPUDescriptorHandleForHeapStart());
-
+	g_hBackBuffer = g_pDescripterHeapArray[DESCRIPTOR_HEAP_TYPE_RTV]->GetCPUDescriptorHandleForHeapStart();
+	g_pDevice->CreateRenderTargetView(g_pBackBufferResource, nullptr, g_hBackBuffer);
 #if 0
 	// 深度ステンシルビュー作成
 	hr = g_pGISwapChain->GetBuffer(0, __uuidof(ID3D12Resource), reinterpret_cast<void**>(&g_pDepthStencilResource));
@@ -522,7 +523,7 @@ void Render()
 
 	// レンダーターゲットビューを設定
 	pCommand->SetRenderTargets(
-		&g_pDescripterHeapArray[DESCRIPTOR_HEAP_TYPE_RTV]->GetCPUDescriptorHandleForHeapStart(),
+		&g_hBackBuffer,
 		TRUE,
 		1,
 		nullptr);
@@ -540,17 +541,13 @@ void Render()
 		D3D12_RESOURCE_USAGE_RENDER_TARGET);
 
 	// クリア
-	float clearColor[] = { 0.0f, 0.2f, 0.4f, 1.0f };
+	static float count = 0;
 
-	// レンダーターゲットビューを設定して画面をクリア
-	pCommand->SetRenderTargets(
-		&g_pDescripterHeapArray[DESCRIPTOR_HEAP_TYPE_RTV]->GetCPUDescriptorHandleForHeapStart(),
-		TRUE,
-		1,
-		nullptr);
+	count = fmod(count + 0.01f, 1.0f);
+	float clearColor[] = { count, 0.2f, 0.4f, 1.0f };
 
 	pCommand->ClearRenderTargetView(
-		g_pDescripterHeapArray[DESCRIPTOR_HEAP_TYPE_RTV]->GetCPUDescriptorHandleForHeapStart(),
+		g_hBackBuffer,
 		clearColor,
 		&clearRect,
 		1);
@@ -579,8 +576,8 @@ void Render()
 	WaitForSingleObject(g_hFenceEvent, INFINITE);
 
 	// コマンドアロケータとコマンドリストをリセット
-	pCommand->Reset(g_pCommandAllocator, g_pPipelineState);
 	g_pCommandAllocator->Reset();
+	pCommand->Reset(g_pCommandAllocator, g_pPipelineState);
 }
 
 // ウィンドウプロシージャ
