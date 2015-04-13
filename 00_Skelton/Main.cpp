@@ -13,6 +13,9 @@
 
 #include <DirectXMath.h>
 
+#define STB_IMAGE_IMPLEMENTATION
+#include "../libs/stb-master/stb_image.h"
+
 //==============================================================================
 // ライブラリリンク
 //==============================================================================
@@ -27,14 +30,16 @@
 const D3D12_INPUT_ELEMENT_DESC INPUT_LAYOUT[] =
 {
 	{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_PER_VERTEX_DATA, 0 },
-	{ "COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 12, D3D12_INPUT_PER_VERTEX_DATA, 0 }
+	{ "COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 12, D3D12_INPUT_PER_VERTEX_DATA, 0 },
+	{ "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 28, D3D12_INPUT_PER_VERTEX_DATA, 0 },
 };
 
 // 頂点定義
 struct UserVertex
 {
-	DirectX::XMFLOAT4 pos;		// 頂点座標
+	DirectX::XMFLOAT3 pos;		// 頂点座標
 	DirectX::XMFLOAT4 color;	// 頂点カラー
+	DirectX::XMFLOAT2 uv;		// UV座標
 };
 
 
@@ -73,6 +78,7 @@ ID3D12DescriptorHeap*		g_pDescripterHeapArray[DESCRIPTOR_HEAP_TYPE_MAX];	// ディ
 ID3D12GraphicsCommandList*	g_pGraphicsCommandList;								// 描画コマンドリスト
 ID3D12RootSignature*		g_pRootSignature;									// ルートシグニチャ
 D3D12_VIEWPORT				g_viewPort;											// ビューポート
+ID3D12Fence*				g_pFence;											// フェンスオブジェクト
 HANDLE						g_hFenceEvent;										// フェンスイベントハンドル
 
 ID3D12Resource*				g_pBackBufferResource;								// バックバッファのリソース
@@ -85,9 +91,9 @@ LPD3DBLOB					g_pPSBlob;											// ピクセルシェーダブロブ
 
 ID3D12Resource*				g_pVertexBufferResource;							// 頂点バッファのリソース
 D3D12_VERTEX_BUFFER_VIEW	g_VertexBufferView;									// 頂点バッファビュー
-ID3D12Fence*				g_pFence;											// フェンスオブジェクト
 
-UINT						g_CurrentAllocator = 0;								// 現在のアロケータ
+ID3D12Resource*				g_pTextureResource;									// テクスチャのリソース
+D3D12_CPU_DESCRIPTOR_HANDLE	g_hTexure;											// テクスチャハンドル
 
 // エラーメッセージ
 // エラーが起こったらtrueを返すようにする
@@ -429,9 +435,9 @@ bool setupResource()
 	// 頂点バッファ作成
 	UserVertex vertex[] =
 	{
-		{ DirectX::XMFLOAT4( 0.0f,  0.5f, 0.0f, 1.0f), DirectX::XMFLOAT4(1.0f, 0.0f, 0.0f, 1.0f) },
-		{ DirectX::XMFLOAT4( 0.5f, -0.5,  0.0f, 1.0f), DirectX::XMFLOAT4(0.0f, 1.0f, 0.0f, 1.0f) },
-		{ DirectX::XMFLOAT4(-0.5f, -0.5f, 0.0f, 1.0f), DirectX::XMFLOAT4(0.0f, 0.0f, 1.0f, 1.0f) },
+		{ DirectX::XMFLOAT3( 0.0f,  0.5f, 0.0f), DirectX::XMFLOAT4(1.0f, 0.0f, 0.0f, 1.0f), DirectX::XMFLOAT2(0.0f, 0.0f) },
+		{ DirectX::XMFLOAT3( 0.5f, -0.5,  0.0f), DirectX::XMFLOAT4(0.0f, 1.0f, 0.0f, 1.0f), DirectX::XMFLOAT2(1.0f, 0.0f) },
+		{ DirectX::XMFLOAT3(-0.5f, -0.5f, 0.0f), DirectX::XMFLOAT4(0.0f, 0.0f, 1.0f, 1.0f), DirectX::XMFLOAT2(1.0f, 1.0f) },
 	};
 
 	// ※ドキュメントには静的データをアップロードヒープに渡すのは推奨しないとのこと
@@ -468,6 +474,72 @@ bool setupResource()
 	g_VertexBufferView.StrideInBytes = sizeof(UserVertex);
 	g_VertexBufferView.SizeInBytes = sizeof(vertex);
 
+	// テクスチャ作成
+	// リソースバッファを獲得
+	hr = g_pGISwapChain->GetBuffer(0, IID_PPV_ARGS(&g_pTextureResource));
+	if (showErrorMessage(hr, TEXT("テクスチャー用バッファ獲得失敗")))
+	{
+		return false;
+	}
+	D3D12_SHADER_RESOURCE_VIEW_DESC descSRV;
+	ZeroMemory(&descSRV, sizeof(descSRV));
+	descSRV.Format							= DXGI_FORMAT_R8G8B8A8_UNORM;
+	descSRV.ViewDimension					= D3D12_SRV_DIMENSION_TEXTURE2D;
+	descSRV.Shader4ComponentMapping			= D3D12_ENCODE_SHADER_4_COMPONENT_MAPPING(0,0,0,0);
+	descSRV.Texture2D.MostDetailedMip		= 0;
+	descSRV.Texture2D.MipLevels				= 1;
+	descSRV.Texture2D.PlaneSlice			= 0;
+	descSRV.Texture2D.ResourceMinLODClamp	= 1.0f;
+
+	g_hTexure = g_pDescripterHeapArray[DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV]->GetCPUDescriptorHandleForHeapStart();
+
+#if 0
+	// テクスチャの生データを書き込み
+	int x, y, comp;
+	stbi_uc* pixels = stbi_load("../resource/Ok-icon.png", &x, &y, &comp, 0);
+
+	D3D12_RESOURCE_DESC descResource;
+
+	descResource.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE_2D;
+	descResource.Alignment = 0;
+	descResource.Width = x;
+	descResource.Height = y;
+	descResource.DepthOrArraySize = 2;
+	descResource.MipLevels = 0;
+	descResource.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+	descResource.SampleDesc = {1, 0};
+	descResource.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+	descResource.MiscFlags = D3D12_RESOURCE_MISC_ALLOW_UNORDERED_ACCESS;
+
+	D3D12_CLEAR_VALUE* clearColor = new D3D12_CLEAR_VALUE[x * y];
+	for (int i = 0; i < y; ++i)
+	{
+		for (int j = 0; j < x; ++j) 
+		{
+			D3D12_CLEAR_VALUE& color = clearColor[i * y + j];
+			color.Color[0] = static_cast<float>(pixels[i * y + j * comp + 0]) / 255.f;
+			color.Color[1] = static_cast<float>(pixels[i * y + j * comp + 1]) / 255.f;
+			color.Color[2] = static_cast<float>(pixels[i * y + j * comp + 2]) / 255.f;
+			color.Color[3] = static_cast<float>(pixels[i * y + j * comp + 3]) / 255.f;
+			color.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+		}
+	}
+
+	g_pDevice->CreateCommittedResource(
+		&CD3D12_HEAP_PROPERTIES(D3D12_HEAP_TYPE::D3D12_HEAP_TYPE_DEFAULT),
+		D3D12_HEAP_MISC_SHARED,
+		&descResource,
+		D3D12_RESOURCE_USAGE_PIXEL_SHADER_RESOURCE,
+		nullptr,//clearColor,
+		IID_PPV_ARGS(&g_pTextureResource));
+
+	g_pDevice->CreateShaderResourceView(g_pTextureResource, nullptr, g_hTexure);
+	g_pTextureResource->SetName(TEXT("テクスチャ"));
+
+	delete [] clearColor;
+	stbi_image_free(pixels);
+
+#endif
 	return true;
 }
 

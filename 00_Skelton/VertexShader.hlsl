@@ -6,6 +6,7 @@ VS_OUT main(VS_IN vsin)
 
 	output.pos = vsin.pos;
 	output.color = vsin.color;
+	output.uv = vsin.uv;
 
 	return output;
 }
