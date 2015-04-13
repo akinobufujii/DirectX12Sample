@@ -474,6 +474,7 @@ bool setupResource()
 	g_VertexBufferView.StrideInBytes = sizeof(UserVertex);
 	g_VertexBufferView.SizeInBytes = sizeof(vertex);
 
+#if 0
 	// テクスチャ作成
 	// リソースバッファを獲得
 	hr = g_pGISwapChain->GetBuffer(0, IID_PPV_ARGS(&g_pTextureResource));
@@ -493,7 +494,6 @@ bool setupResource()
 
 	g_hTexure = g_pDescripterHeapArray[DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV]->GetCPUDescriptorHandleForHeapStart();
 
-#if 0
 	// テクスチャの生データを書き込み
 	int x, y, comp;
 	stbi_uc* pixels = stbi_load("../resource/Ok-icon.png", &x, &y, &comp, 0);
