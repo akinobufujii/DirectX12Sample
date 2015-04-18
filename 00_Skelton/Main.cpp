@@ -256,7 +256,9 @@ bool initDirectX(HWND hWnd)
 	swapChainDesc.Windowed = TRUE;
 	swapChainDesc.Flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;
 
-	hr = g_pGIFactory->CreateSwapChain(g_pDevice, &swapChainDesc, &g_pGISwapChain);
+	// デバイスじゃなくてコマンドキューを渡す
+	// でないと実行時エラーが起こる
+	hr = g_pGIFactory->CreateSwapChain(g_pCommandQueue, &swapChainDesc, &g_pGISwapChain);
 	if (showErrorMessage(hr, TEXT("スワップチェーン作成失敗")))
 	{
 		return false;
@@ -264,7 +266,7 @@ bool initDirectX(HWND hWnd)
 
 	// 描画コマンドリスト作成
 	hr = g_pDevice->CreateCommandList(
-		0x00000001,
+		0x00000000,
 		D3D12_COMMAND_LIST_TYPE_DIRECT,
 		g_pCommandAllocator,
 		g_pPipelineState,
@@ -284,7 +286,7 @@ bool initDirectX(HWND hWnd)
 	// ピクセルシェーダコンパイル
 	if (compileShaderFlomFile(L"PixelShader.hlsl", "main", "ps_5_1", &g_pPSBlob) == false)
 	{
-		showErrorMessage(E_FAIL, TEXT("頂点シェーダコンパイル失敗"));
+		showErrorMessage(E_FAIL, TEXT("ピクセルシェーダコンパイル失敗"));
 	}
 
 	// 空のルートシグニチャ作成
@@ -553,6 +555,7 @@ void cleanupResource()
 void setResourceBarrier(ID3D12GraphicsCommandList* commandList, ID3D12Resource* resource, UINT StateBefore, UINT StateAfter)
 {
 	D3D12_RESOURCE_BARRIER_DESC descBarrier = {};
+	ZeroMemory(&descBarrier, sizeof(descBarrier));
 
 	descBarrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
 	descBarrier.Transition.pResource = resource;
