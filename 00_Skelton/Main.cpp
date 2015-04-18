@@ -13,8 +13,11 @@
 
 #include <DirectXMath.h>
 
+#pragma warning( push )
+#pragma warning( disable: 4013 4068 4312 4456 4457 )
 #define STB_IMAGE_IMPLEMENTATION
 #include "../libs/stb-master/stb_image.h"
+#pragma warning( pop )
 
 //==============================================================================
 // ƒ‰ƒCƒuƒ‰ƒŠƒŠƒ“ƒN
