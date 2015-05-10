@@ -330,7 +330,6 @@ bool initDirectX(HWND hWnd)
 	descRasterizer.ConservativeRaster = D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF;
 
 	// ブレンドステート設定
-	// デフォルトの設定は以下のページを参照(ScissorEnableはないけど・・・)
 	// https://msdn.microsoft.com/query/dev14.query?appId=Dev14IDEF1&l=JA-JP&k=k(d3d12%2FD3D12_BLEND_DESC);k(D3D12_BLEND_DESC);k(DevLang-C%2B%2B);k(TargetOS-Windows)&rd=true
 	D3D12_BLEND_DESC descBlend;
 	descBlend.AlphaToCoverageEnable = FALSE;
