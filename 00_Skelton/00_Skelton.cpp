@@ -7,6 +7,11 @@
 #include <memory>
 
 #include <d3d12.h>
+/*
+ドキュメントにはあるって書いているのにない拡張ライブラリ
+https://msdn.microsoft.com/en-us/library/dn708058(v=vs.85).aspx
+#include <d3dx12.h>
+*/
 #include <Dxgi1_3.h>
 #include <D3d12SDKLayers.h>
 #include <d3dcompiler.h>
@@ -29,12 +34,14 @@
 //==============================================================================
 // 定義
 //==============================================================================
+//#define RESOURCE_SETUP	// リソースセットアップをする
+
 // 入力レイアウト
 const D3D12_INPUT_ELEMENT_DESC INPUT_LAYOUT[] =
 {
-	{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_PER_VERTEX_DATA, 0 },
-	{ "COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 12, D3D12_INPUT_PER_VERTEX_DATA, 0 },
-	{ "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 28, D3D12_INPUT_PER_VERTEX_DATA, 0 },
+	{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+	{ "COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+	{ "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 28, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
 };
 
 // 頂点定義
@@ -176,10 +183,7 @@ bool initDirectX(HWND hWnd)
 	// デバイス作成
 	hr = D3D12CreateDevice(
 		nullptr, 
-		D3D_DRIVER_TYPE_WARP,
-		D3D12_CREATE_DEVICE_DEBUG,	// デバッグデバイス
-		D3D_FEATURE_LEVEL_11_1,
-		D3D12_SDK_VERSION,
+		D3D_FEATURE_LEVEL_12_0,
 		IID_PPV_ARGS(&g_pDevice));
 
 	if(showErrorMessage(hr, TEXT("デバイス作成失敗")))
@@ -203,7 +207,7 @@ bool initDirectX(HWND hWnd)
 	D3D12_COMMAND_QUEUE_DESC commandQueueDesk;
 	commandQueueDesk.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;	// コマンドリストタイプ
 	commandQueueDesk.Priority = 0;							// 優先度
-	commandQueueDesk.Flags = D3D12_COMMAND_QUEUE_NONE;		// フラグ
+	commandQueueDesk.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;	// フラグ
 	commandQueueDesk.NodeMask = 0x00000000;					// ノードマスク
 
 	hr = g_pDevice->CreateCommandQueue(&commandQueueDesk, IID_PPV_ARGS(&g_pCommandQueue));
@@ -294,9 +298,9 @@ bool initDirectX(HWND hWnd)
 
 	// 空のルートシグニチャ作成
 	LPD3DBLOB pOutBlob = nullptr;
-	D3D12_ROOT_SIGNATURE descRootSignature = D3D12_ROOT_SIGNATURE();
-	descRootSignature.Flags = D3D12_ROOT_SIGNATURE_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
-	D3D12SerializeRootSignature(&descRootSignature, D3D_ROOT_SIGNATURE_V1, &pOutBlob, nullptr);
+	D3D12_ROOT_SIGNATURE_DESC descRootSignature = D3D12_ROOT_SIGNATURE_DESC();
+	descRootSignature.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+	D3D12SerializeRootSignature(&descRootSignature, D3D_ROOT_SIGNATURE_VERSION_1, &pOutBlob, nullptr);
 	hr = g_pDevice->CreateRootSignature(
 		0x00000001,
 		pOutBlob->GetBufferPointer(),
@@ -309,6 +313,39 @@ bool initDirectX(HWND hWnd)
 		return false;
 	}
 
+	// ライスタライザーステート設定
+	// デフォルトの設定は以下のページを参照(ScissorEnableはないけど・・・)
+	// https://msdn.microsoft.com/query/dev14.query?appId=Dev14IDEF1&l=JA-JP&k=k(d3d12%2FD3D12_RASTERIZER_DESC);k(D3D12_RASTERIZER_DESC);k(DevLang-C%2B%2B);k(TargetOS-Windows)&rd=true
+	D3D12_RASTERIZER_DESC descRasterizer;
+	descRasterizer.FillMode = D3D12_FILL_MODE_SOLID;
+	descRasterizer.CullMode = D3D12_CULL_MODE_BACK;
+	descRasterizer.FrontCounterClockwise = FALSE;
+	descRasterizer.DepthBias = 0;
+	descRasterizer.SlopeScaledDepthBias = 0.0f;
+	descRasterizer.DepthBiasClamp = 0.0f;
+	descRasterizer.DepthClipEnable = TRUE;
+	descRasterizer.MultisampleEnable = FALSE;
+	descRasterizer.AntialiasedLineEnable = FALSE;
+	descRasterizer.ForcedSampleCount = 0;
+	descRasterizer.ConservativeRaster = D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF;
+
+	// ブレンドステート設定
+	// デフォルトの設定は以下のページを参照(ScissorEnableはないけど・・・)
+	// https://msdn.microsoft.com/query/dev14.query?appId=Dev14IDEF1&l=JA-JP&k=k(d3d12%2FD3D12_BLEND_DESC);k(D3D12_BLEND_DESC);k(DevLang-C%2B%2B);k(TargetOS-Windows)&rd=true
+	D3D12_BLEND_DESC descBlend;
+	descBlend.AlphaToCoverageEnable = FALSE;
+	descBlend.IndependentBlendEnable = FALSE;
+	descBlend.RenderTarget[0].BlendEnable = FALSE;
+	descBlend.RenderTarget[0].LogicOpEnable	= FALSE;
+	descBlend.RenderTarget[0].SrcBlend = D3D12_BLEND_ONE;
+	descBlend.RenderTarget[0].DestBlend = D3D12_BLEND_ZERO;
+	descBlend.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
+	descBlend.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ONE;
+	descBlend.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ZERO;
+	descBlend.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
+	descBlend.RenderTarget[0].LogicOp = D3D12_LOGIC_OP_NOOP;
+	descBlend.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+
 	// パイプラインステートオブジェクト作成
 	// 頂点シェーダとピクセルシェーダがないと、作成に失敗する
 	D3D12_GRAPHICS_PIPELINE_STATE_DESC descPSO;
@@ -317,8 +354,8 @@ bool initDirectX(HWND hWnd)
 	descPSO.pRootSignature = g_pRootSignature;																// ルートシグニチャ設定
 	descPSO.VS = { reinterpret_cast<BYTE*>(g_pVSBlob->GetBufferPointer()), g_pVSBlob->GetBufferSize() };	// 頂点シェーダ設定
 	descPSO.PS = { reinterpret_cast<BYTE*>(g_pPSBlob->GetBufferPointer()), g_pPSBlob->GetBufferSize() };	// ピクセルシェーダ設定
-	descPSO.RasterizerState = CD3D12_RASTERIZER_DESC(D3D12_DEFAULT);										// ラスタライザ設定
-	descPSO.BlendState = CD3D12_BLEND_DESC(D3D12_DEFAULT);													// ブレンド設定
+	descPSO.RasterizerState = descRasterizer;																// ラスタライザ設定
+	descPSO.BlendState = descBlend;																			// ブレンド設定
 	descPSO.DepthStencilState.DepthEnable = FALSE;															// 深度バッファ有効設定
 	descPSO.DepthStencilState.StencilEnable = FALSE;														// ステンシルバッファ有効設定
 	descPSO.SampleMask = UINT_MAX;																			// サンプルマスク設定
@@ -342,7 +379,7 @@ bool initDirectX(HWND hWnd)
 
 	for (int i = 0; i < DESCRIPTOR_HEAP_TYPE_MAX; ++i)
 	{
-		heapDesc.Flags = (i == D3D12_RTV_DESCRIPTOR_HEAP) ? D3D12_DESCRIPTOR_HEAP_NONE : D3D12_DESCRIPTOR_HEAP_SHADER_VISIBLE;
+		heapDesc.Flags = (i == D3D12_DESCRIPTOR_HEAP_TYPE_RTV) ? D3D12_DESCRIPTOR_HEAP_FLAG_NONE : D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
 		heapDesc.Type = static_cast<D3D12_DESCRIPTOR_HEAP_TYPE>(i);
 		
 		hr = g_pDevice->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(&g_pDescripterHeapArray[i]));
@@ -353,7 +390,7 @@ bool initDirectX(HWND hWnd)
 	}
 
 	// ディスクリプタヒープとコマンドリストの関連づけ
-	g_pGraphicsCommandList->SetDescriptorHeaps(g_pDescripterHeapArray, DESCRIPTOR_HEAP_TYPE_SET);
+	g_pGraphicsCommandList->SetDescriptorHeaps(DESCRIPTOR_HEAP_TYPE_SET, g_pDescripterHeapArray);
 
 	// レンダーターゲットビューを作成
 	hr = g_pGISwapChain->GetBuffer(0, IID_PPV_ARGS(&g_pBackBufferResource));
@@ -394,7 +431,7 @@ bool initDirectX(HWND hWnd)
 	g_viewPort.MaxDepth = 1.0f;			// 最大深度
 
 	// フェンスオブジェクト作成
-	g_pDevice->CreateFence(0, D3D12_FENCE_MISC_NONE, IID_PPV_ARGS(&g_pFence));
+	g_pDevice->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&g_pFence));
 
 	if (showErrorMessage(hr, TEXT("フェンスオブジェクト作成失敗")))
 	{
@@ -432,6 +469,7 @@ void cleanupDirectX()
 	safeRelease(g_pDevice);
 }
 
+#if defined(RESOURCE_SETUP)
 // リソースセットアップ
 bool setupResource() 
 {
@@ -547,17 +585,20 @@ bool setupResource()
 #endif
 	return true;
 }
+#endif
 
+#if defined(RESOURCE_SETUP)
 // リソースクリーンアップ
 void cleanupResource()
 {
 	safeRelease(g_pVertexBufferResource);
 }
+#endif
 
 // リソース設定時のバリア関数
-void setResourceBarrier(ID3D12GraphicsCommandList* commandList, ID3D12Resource* resource, UINT StateBefore, UINT StateAfter)
+void setResourceBarrier(ID3D12GraphicsCommandList* commandList, ID3D12Resource* resource, D3D12_RESOURCE_STATES StateBefore, D3D12_RESOURCE_STATES StateAfter)
 {
-	D3D12_RESOURCE_BARRIER_DESC descBarrier = {};
+	D3D12_RESOURCE_BARRIER descBarrier = {};
 	ZeroMemory(&descBarrier, sizeof(descBarrier));
 
 	descBarrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
@@ -580,10 +621,14 @@ void Render()
 	pCommand->SetGraphicsRootSignature(g_pRootSignature);
 
 	// レンダーターゲットビューを設定
-	pCommand->SetRenderTargets(&g_hBackBuffer, TRUE, 1, nullptr);
+	pCommand->OMSetRenderTargets(1, &g_hBackBuffer, TRUE, nullptr);
 
 	// 矩形を設定
-	CD3D12_RECT clearRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+	D3D12_RECT clearRect;
+	clearRect.left = 0;
+	clearRect.top = 0;
+	clearRect.right = SCREEN_WIDTH;
+	clearRect.bottom = SCREEN_HEIGHT;
 	pCommand->RSSetViewports(1, &g_viewPort);
 	pCommand->RSSetScissorRects(1, &clearRect);
 
@@ -591,30 +636,33 @@ void Render()
 	setResourceBarrier(
 		pCommand,
 		g_pBackBufferResource,
-		D3D12_RESOURCE_USAGE_PRESENT,
-		D3D12_RESOURCE_USAGE_RENDER_TARGET);
+		D3D12_RESOURCE_STATE_PRESENT,
+		D3D12_RESOURCE_STATE_RENDER_TARGET);
 
 	// クリア
 	static float count = 0;
 	count = fmod(count + 0.01f, 1.0f);
 	float clearColor[] = { count, 0.2f, 0.4f, 1.0f };
-	pCommand->ClearRenderTargetView(g_hBackBuffer, clearColor, &clearRect, 1);
+	pCommand->ClearRenderTargetView(g_hBackBuffer, clearColor, 1, &clearRect);
 
+#if defined(RESOURCE_SETUP)
 	// 三角形描画
 	pCommand->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 	pCommand->SetVertexBuffers(0, &g_VertexBufferView, 1);
 	pCommand->DrawInstanced(3, 1, 0, 0);
+#endif
 	
 	// present前の処理
 	setResourceBarrier(
 		pCommand,
 		g_pBackBufferResource,
-		D3D12_RESOURCE_USAGE_RENDER_TARGET,
-		D3D12_RESOURCE_USAGE_PRESENT);
+		D3D12_RESOURCE_STATE_RENDER_TARGET,
+		D3D12_RESOURCE_STATE_PRESENT);
 
 	// 描画コマンドを実行してフリップ
 	pCommand->Close();
-	g_pCommandQueue->ExecuteCommandLists(1, CommandListCast(&pCommand));
+	ID3D12CommandList* pTemp = pCommand;
+	g_pCommandQueue->ExecuteCommandLists(1, &pTemp);
 	g_pGISwapChain->Present(1, 0);
 
 	// コマンドキューの処理を待つ
@@ -697,10 +745,12 @@ int APIENTRY _tWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPTSTR lpCm
 		return 1;
 	}
 
+#if defined(RESOURCE_SETUP)
 	if (setupResource() == false) 
 	{
 		return 1;
 	}
+#endif
 
 	// ウィンドウ表示
 	ShowWindow(hwnd, nCmdShow);
@@ -720,7 +770,9 @@ int APIENTRY _tWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPTSTR lpCm
 	} while (msg.message != WM_QUIT);
 
 	// 解放処理
+#if defined(RESOURCE_SETUP)
 	cleanupResource();
+#endif
 	cleanupDirectX();
 
 	// 登録したクラスを解除

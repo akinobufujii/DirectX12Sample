@@ -1,7 +1,7 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio 14
-VisualStudioVersion = 14.0.22609.0
+VisualStudioVersion = 14.0.22823.1
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "00_Skelton", "00_Skelton\00_Skelton.vcxproj", "{545DEA03-A510-41D1-8792-9F29F9EB6559}"
 EndProject
@@ -26,7 +26,6 @@ Global
 		{CD8388B7-6443-442A-8284-CF1A9F0D6611}.Debug|x64.ActiveCfg = Debug|Win32
 		{CD8388B7-6443-442A-8284-CF1A9F0D6611}.Debug|x64.Build.0 = Debug|Win32
 		{CD8388B7-6443-442A-8284-CF1A9F0D6611}.Debug|x86.ActiveCfg = Debug|Win32
-		{CD8388B7-6443-442A-8284-CF1A9F0D6611}.Debug|x86.Build.0 = Debug|Win32
 		{CD8388B7-6443-442A-8284-CF1A9F0D6611}.Release|x64.ActiveCfg = Release|Win32
 		{CD8388B7-6443-442A-8284-CF1A9F0D6611}.Release|x86.ActiveCfg = Release|Win32
 		{CD8388B7-6443-442A-8284-CF1A9F0D6611}.Release|x86.Build.0 = Release|Win32
