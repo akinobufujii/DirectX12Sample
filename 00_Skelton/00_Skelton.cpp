@@ -14,6 +14,7 @@ https://msdn.microsoft.com/en-us/library/dn708058(v=vs.85).aspx
 */
 #include <Dxgi1_2.h>
 #include <Dxgi1_3.h>
+#include <Dxgi1_4.h>
 #include <D3d12SDKLayers.h>
 #include <d3dcompiler.h>
 
@@ -60,6 +61,7 @@ struct UserVertex
 static const int SCREEN_WIDTH = 1280;				// 画面幅
 static const int SCREEN_HEIGHT = 720;				// 画面高さ
 static const LPTSTR	CLASS_NAME = TEXT("DirectX");	// ウィンドウネーム
+static const UINT BACKBUFFER_COUNT = 2;				// バックバッファ数
 
 // ディスクリプタヒープタイプ
 enum DESCRIPTOR_HEAP_TYPE 
@@ -84,7 +86,7 @@ ID3D12CommandQueue*			g_pCommandQueue;									// コマンドキュー
 IDXGIDevice2*				g_pGIDevice;										// GIデバイス
 IDXGIAdapter*				g_pGIAdapter;										// GIアダプター
 IDXGIFactory2*				g_pGIFactory;										// GIファクトリー
-IDXGISwapChain*				g_pGISwapChain;										// GIスワップチェーン
+IDXGISwapChain3*			g_pGISwapChain;										// GIスワップチェーン
 ID3D12PipelineState*		g_pPipelineState;									// パイプラインステート
 ID3D12DescriptorHeap*		g_pDescripterHeapArray[DESCRIPTOR_HEAP_TYPE_MAX];	// ディスクリプタヒープ配列
 ID3D12GraphicsCommandList*	g_pGraphicsCommandList;								// 描画コマンドリスト
@@ -93,8 +95,10 @@ D3D12_VIEWPORT				g_viewPort;											// ビューポート
 ID3D12Fence*				g_pFence;											// フェンスオブジェクト
 HANDLE						g_hFenceEvent;										// フェンスイベントハンドル
 
-ID3D12Resource*				g_pBackBufferResource;								// バックバッファのリソース
-D3D12_CPU_DESCRIPTOR_HANDLE	g_hBackBuffer;										// バックバッファハンドル
+UINT						g_CurrentBuckBufferIndex = 0;						// 現在のバックバッファ
+ID3D12Resource*				g_pBackBufferResource[BACKBUFFER_COUNT];			// バックバッファのリソース
+D3D12_CPU_DESCRIPTOR_HANDLE	g_hBackBuffer[BACKBUFFER_COUNT];					// バックバッファハンドル
+
 ID3D12Resource*				g_pDepthStencilResource;							// デプスステンシルのリソース
 D3D12_CPU_DESCRIPTOR_HANDLE	g_hDepthStencil;									// デプスステンシルのハンドル
 
@@ -256,7 +260,7 @@ bool initDirectX(HWND hWnd)
 
 	DXGI_SWAP_CHAIN_DESC descSwapChain;
 	ZeroMemory(&descSwapChain, sizeof(descSwapChain));
-	descSwapChain.BufferCount = 2;
+	descSwapChain.BufferCount = BACKBUFFER_COUNT;					// バックバッファは2枚以上ないと失敗する
 	descSwapChain.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
 	descSwapChain.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
 	descSwapChain.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
@@ -266,7 +270,7 @@ bool initDirectX(HWND hWnd)
 
 	// デバイスじゃなくてコマンドキューを渡す
 	// でないと実行時エラーが起こる
-	hr = g_pGIFactory->CreateSwapChain(g_pCommandQueue, &descSwapChain, &g_pGISwapChain);
+	hr = g_pGIFactory->CreateSwapChain(g_pCommandQueue, &descSwapChain, reinterpret_cast<IDXGISwapChain**>(&g_pGISwapChain));
 	if (showErrorMessage(hr, TEXT("スワップチェーン作成失敗")))
 	{
 		return false;
@@ -375,7 +379,7 @@ bool initDirectX(HWND hWnd)
 	D3D12_DESCRIPTOR_HEAP_DESC heapDesc;
 	ZeroMemory(&heapDesc, sizeof(heapDesc));
 
-	heapDesc.NumDescriptors = 1;
+	heapDesc.NumDescriptors = BACKBUFFER_COUNT;
 
 	for (int i = 0; i < DESCRIPTOR_HEAP_TYPE_MAX; ++i)
 	{
@@ -392,15 +396,30 @@ bool initDirectX(HWND hWnd)
 	// ディスクリプタヒープとコマンドリストの関連づけ
 	g_pGraphicsCommandList->SetDescriptorHeaps(DESCRIPTOR_HEAP_TYPE_SET, g_pDescripterHeapArray);
 
-	// レンダーターゲットビューを作成
-	hr = g_pGISwapChain->GetBuffer(0, IID_PPV_ARGS(&g_pBackBufferResource));
-	if (showErrorMessage(hr, TEXT("レンダーターゲットビュー作成失敗")))
+	// レンダーターゲットビュー(バックバッファ)を作成
+	UINT strideHandleBytes = g_pDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+	for (UINT i = 0; i < BACKBUFFER_COUNT; ++i) 
 	{
-		return false;
+#if 0
+		hr = g_pGISwapChain->GetBuffer(0, IID_PPV_ARGS(&g_pBackBufferResource[i]));
+		if (showErrorMessage(hr, TEXT("レンダーターゲットビュー作成失敗")))
+		{
+			return false;
+		}
+
+		g_hBackBuffer[i] = g_pDescripterHeapArray[DESCRIPTOR_HEAP_TYPE_RTV]->GetCPUDescriptorHandleForHeapStart();
+		g_pDevice->CreateRenderTargetView(g_pBackBufferResource[i], nullptr, g_hBackBuffer[i]);
+#else
+		hr = g_pGISwapChain->GetBuffer(i, IID_PPV_ARGS(&g_pBackBufferResource[i]));
+		if (showErrorMessage(hr, TEXT("レンダーターゲットビュー作成失敗")))
+		{
+			return false;
+		}
+		g_hBackBuffer[i] = g_pDescripterHeapArray[DESCRIPTOR_HEAP_TYPE_RTV]->GetCPUDescriptorHandleForHeapStart();
+		g_hBackBuffer[i].ptr += i * strideHandleBytes;
+		g_pDevice->CreateRenderTargetView(g_pBackBufferResource[i], nullptr, g_hBackBuffer[i]);
+#endif
 	}
-	
-	g_hBackBuffer = g_pDescripterHeapArray[DESCRIPTOR_HEAP_TYPE_RTV]->GetCPUDescriptorHandleForHeapStart();
-	g_pDevice->CreateRenderTargetView(g_pBackBufferResource, nullptr, g_hBackBuffer);
 
 #if 0
 	// 深度ステンシルビュー作成
@@ -449,7 +468,10 @@ void cleanupDirectX()
 {
 	CloseHandle(g_hFenceEvent);
 	safeRelease(g_pFence);
-	safeRelease(g_pBackBufferResource);
+	for (UINT i = 0; i < BACKBUFFER_COUNT; ++i)
+	{
+		safeRelease(g_pBackBufferResource[i]);
+	}
 	for (int i = 0; i < DESCRIPTOR_HEAP_TYPE_MAX; ++i)
 	{
 		safeRelease(g_pDescripterHeapArray[i]);
@@ -617,11 +639,8 @@ void Render()
 	ID3D12GraphicsCommandList* pCommand = g_pGraphicsCommandList;
 
 	// パイプラインステートオブジェクトとルートシグニチャをセット
-	pCommand->SetPipelineState(g_pPipelineState);
-	pCommand->SetGraphicsRootSignature(g_pRootSignature);
-
-	// レンダーターゲットビューを設定
-	pCommand->OMSetRenderTargets(1, &g_hBackBuffer, TRUE, nullptr);
+	//pCommand->SetPipelineState(g_pPipelineState);
+	//pCommand->SetGraphicsRootSignature(g_pRootSignature);
 
 	// 矩形を設定
 	D3D12_RECT clearRect;
@@ -629,13 +648,17 @@ void Render()
 	clearRect.top = 0;
 	clearRect.right = SCREEN_WIDTH;
 	clearRect.bottom = SCREEN_HEIGHT;
-	pCommand->RSSetViewports(1, &g_viewPort);
-	pCommand->RSSetScissorRects(1, &clearRect);
+
+	// バックバッファの参照先を変更
+	g_CurrentBuckBufferIndex = g_pGISwapChain->GetCurrentBackBufferIndex();
+
+	// レンダーターゲットビューを設定
+	//pCommand->OMSetRenderTargets(1, &g_hBackBuffer[g_CurrentBuckBufferIndex], TRUE, nullptr);
 
 	// レンダーターゲットへリソースを設定
 	setResourceBarrier(
 		pCommand,
-		g_pBackBufferResource,
+		g_pBackBufferResource[g_CurrentBuckBufferIndex],
 		D3D12_RESOURCE_STATE_PRESENT,
 		D3D12_RESOURCE_STATE_RENDER_TARGET);
 
@@ -643,7 +666,9 @@ void Render()
 	static float count = 0;
 	count = fmod(count + 0.01f, 1.0f);
 	float clearColor[] = { count, 0.2f, 0.4f, 1.0f };
-	pCommand->ClearRenderTargetView(g_hBackBuffer, clearColor, 1, &clearRect);
+	pCommand->RSSetViewports(1, &g_viewPort);
+//	pCommand->RSSetScissorRects(1, &clearRect);
+	pCommand->ClearRenderTargetView(g_hBackBuffer[g_CurrentBuckBufferIndex], clearColor, 1, &clearRect);
 
 #if defined(RESOURCE_SETUP)
 	// 三角形描画
@@ -655,7 +680,7 @@ void Render()
 	// present前の処理
 	setResourceBarrier(
 		pCommand,
-		g_pBackBufferResource,
+		g_pBackBufferResource[g_CurrentBuckBufferIndex],
 		D3D12_RESOURCE_STATE_RENDER_TARGET,
 		D3D12_RESOURCE_STATE_PRESENT);
 
@@ -673,7 +698,7 @@ void Render()
 
 	// コマンドアロケータとコマンドリストをリセット
 	g_pCommandAllocator->Reset();
-	pCommand->Reset(g_pCommandAllocator, g_pPipelineState);
+	pCommand->Reset(g_pCommandAllocator, nullptr);
 }
 
 // ウィンドウプロシージャ
