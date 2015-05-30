@@ -94,6 +94,7 @@ ID3D12RootSignature*		g_pRootSignature;									// ルートシグニチャ
 D3D12_VIEWPORT				g_viewPort;											// ビューポート
 ID3D12Fence*				g_pFence;											// フェンスオブジェクト
 HANDLE						g_hFenceEvent;										// フェンスイベントハンドル
+UINT64						g_CurrentFenceIndex = 0;							// 現在のフェンスインデックス
 
 UINT						g_CurrentBuckBufferIndex = 0;						// 現在のバックバッファ
 ID3D12Resource*				g_pBackBufferResource[BACKBUFFER_COUNT];			// バックバッファのリソース
@@ -203,7 +204,7 @@ bool initDirectX(HWND hWnd)
 
 	// GIファクトリ獲得
 	// デバッグモードのファクトリ作成
-	hr = CreateDXGIFactory2(DXGI_CREATE_FACTORY_DEBUG, IID_PPV_ARGS(&g_pGIFactory));
+	hr = CreateDXGIFactory2((_DEBUG)? DXGI_CREATE_FACTORY_DEBUG : 0, IID_PPV_ARGS(&g_pGIFactory));
 	if (showErrorMessage(hr, TEXT("GIファクトリ獲得失敗")))
 	{
 		return false;
@@ -416,7 +417,7 @@ bool initDirectX(HWND hWnd)
 			return false;
 		}
 		g_hBackBuffer[i] = g_pDescripterHeapArray[DESCRIPTOR_HEAP_TYPE_RTV]->GetCPUDescriptorHandleForHeapStart();
-		g_hBackBuffer[i].ptr += i * strideHandleBytes;
+		g_hBackBuffer[i].ptr += i * strideHandleBytes;	// レンダーターゲットのオフセット分ポインタをずらす
 		g_pDevice->CreateRenderTargetView(g_pBackBufferResource[i], nullptr, g_hBackBuffer[i]);
 #endif
 	}
@@ -489,6 +490,9 @@ void cleanupDirectX()
 	safeRelease(g_pGraphicsCommandList);
 	safeRelease(g_pCommandAllocator);
 	safeRelease(g_pDevice);
+#if _DEBUG
+	safeRelease(g_pDebug);
+#endif
 }
 
 #if defined(RESOURCE_SETUP)
@@ -639,8 +643,8 @@ void Render()
 	ID3D12GraphicsCommandList* pCommand = g_pGraphicsCommandList;
 
 	// パイプラインステートオブジェクトとルートシグニチャをセット
-	//pCommand->SetPipelineState(g_pPipelineState);
-	//pCommand->SetGraphicsRootSignature(g_pRootSignature);
+	pCommand->SetPipelineState(g_pPipelineState);
+	pCommand->SetGraphicsRootSignature(g_pRootSignature);
 
 	// 矩形を設定
 	D3D12_RECT clearRect;
@@ -653,7 +657,7 @@ void Render()
 	g_CurrentBuckBufferIndex = g_pGISwapChain->GetCurrentBackBufferIndex();
 
 	// レンダーターゲットビューを設定
-	//pCommand->OMSetRenderTargets(1, &g_hBackBuffer[g_CurrentBuckBufferIndex], TRUE, nullptr);
+	pCommand->OMSetRenderTargets(1, &g_hBackBuffer[g_CurrentBuckBufferIndex], TRUE, nullptr);
 
 	// レンダーターゲットへリソースを設定
 	setResourceBarrier(
@@ -667,7 +671,7 @@ void Render()
 	count = fmod(count + 0.01f, 1.0f);
 	float clearColor[] = { count, 0.2f, 0.4f, 1.0f };
 	pCommand->RSSetViewports(1, &g_viewPort);
-//	pCommand->RSSetScissorRects(1, &clearRect);
+	pCommand->RSSetScissorRects(1, &clearRect);
 	pCommand->ClearRenderTargetView(g_hBackBuffer[g_CurrentBuckBufferIndex], clearColor, 1, &clearRect);
 
 #if defined(RESOURCE_SETUP)
@@ -691,14 +695,19 @@ void Render()
 	g_pGISwapChain->Present(1, 0);
 
 	// コマンドキューの処理を待つ
-	g_pFence->Signal(0);
-	g_pFence->SetEventOnCompletion(1, g_hFenceEvent);
-	g_pCommandQueue->Signal(g_pFence, 1);
-	WaitForSingleObject(g_hFenceEvent, INFINITE);
+	const UINT64 FENCE_INDEX = g_CurrentFenceIndex;
+	g_pCommandQueue->Signal(g_pFence, FENCE_INDEX);
+	g_CurrentFenceIndex++;
+
+	if (g_pFence->GetCompletedValue() < FENCE_INDEX)
+	{
+		g_pFence->SetEventOnCompletion(FENCE_INDEX, g_hFenceEvent);
+		WaitForSingleObject(g_hFenceEvent, INFINITE);
+	}
 
 	// コマンドアロケータとコマンドリストをリセット
 	g_pCommandAllocator->Reset();
-	pCommand->Reset(g_pCommandAllocator, nullptr);
+	pCommand->Reset(g_pCommandAllocator, g_pPipelineState);
 }
 
 // ウィンドウプロシージャ
