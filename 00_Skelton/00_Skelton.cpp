@@ -12,6 +12,7 @@
 https://msdn.microsoft.com/en-us/library/dn708058(v=vs.85).aspx
 #include <d3dx12.h>
 */
+#include <Dxgi1_2.h>
 #include <Dxgi1_3.h>
 #include <D3d12SDKLayers.h>
 #include <d3dcompiler.h>
@@ -77,6 +78,7 @@ enum DESCRIPTOR_HEAP_TYPE
 // グローバル変数
 //==============================================================================
 ID3D12Device*				g_pDevice;											// デバイス
+ID3D12Debug*				g_pDebug;											// デバッグオブジェクト
 ID3D12CommandAllocator*		g_pCommandAllocator;								// コマンドアロケータ
 ID3D12CommandQueue*			g_pCommandQueue;									// コマンドキュー
 IDXGIDevice2*				g_pGIDevice;										// GIデバイス
@@ -179,11 +181,41 @@ bool compileShaderFlomFile(LPCWSTR pFileName, LPCSTR pEntrypoint, LPCSTR pTarget
 bool initDirectX(HWND hWnd)
 {
 	HRESULT hr;
+
+#if _DEBUG
+	// デバッグレイヤー作成
+	hr = D3D12GetDebugInterface(IID_PPV_ARGS(&g_pDebug));
+
+	if(g_pDebug)
+	{
+		g_pDebug->EnableDebugLayer();
+	}
+
+	if (showErrorMessage(hr, TEXT("デバッグレイヤー作成失敗")))
+	{
+		return false;
+	}
+#endif
+
+	// GIファクトリ獲得
+	// デバッグモードのファクトリ作成
+	hr = CreateDXGIFactory2(DXGI_CREATE_FACTORY_DEBUG, IID_PPV_ARGS(&g_pGIFactory));
+	if (showErrorMessage(hr, TEXT("GIファクトリ獲得失敗")))
+	{
+		return false;
+	}
+
+	IDXGIAdapter* pGIAdapter = nullptr;
+	hr = g_pGIFactory->EnumAdapters(0, &pGIAdapter);
+	if (showErrorMessage(hr, TEXT("GIアダプター獲得失敗")))
+	{
+		return false;
+	}
 	
 	// デバイス作成
 	hr = D3D12CreateDevice(
-		nullptr, 
-		D3D_FEATURE_LEVEL_12_0,
+		pGIAdapter,
+		D3D_FEATURE_LEVEL_11_0,
 		IID_PPV_ARGS(&g_pDevice));
 
 	if(showErrorMessage(hr, TEXT("デバイス作成失敗")))
@@ -198,6 +230,7 @@ bool initDirectX(HWND hWnd)
 
 	if (showErrorMessage(hr, TEXT("コマンドアロケータ作成失敗")))
 	{
+		hr = g_pDevice->GetDeviceRemovedReason();
 		return false;
 	}
 
@@ -217,55 +250,23 @@ bool initDirectX(HWND hWnd)
 		return false;
 	}
 
-	// ドキュメントの以下のような取得方法だと
-	// GIデバイス作成でエラーが出るので変更
-#if 0
-	// GIデバイス作成
-	hr = g_pDevice->QueryInterface(__uuidof(IDXGIDevice2), reinterpret_cast<void**>(&g_pGIDevice));
-	CreateDXGIFactory2();
-	if (showErrorMessage(hr, TEXT("GIデバイス作成失敗"));)
-	{
-		return false;
-	}
-
-	// GIアダプタ獲得
-	hr = g_pGIDevice->GetAdapter(&g_pGIAdapter);
-	if (showErrorMessage(hr, TEXT("GIアダプタ獲得失敗")))
-	{
-		return false;
-	}
-
-	// GIファクトリ獲得
-	hr = g_pGIAdapter->GetParent(__uuidof(IDXGIFactory2), reinterpret_cast<void**>(&g_pGIFactory));
-	if (showErrorMessage(hr, TEXT("GIファクトリ獲得失敗"));)
-	{
-		return false;
-	}
-#else
-	// GIファクトリ獲得
-	// デバッグモードのファクトリ作成
-	hr = CreateDXGIFactory2(DXGI_CREATE_FACTORY_DEBUG, IID_PPV_ARGS(&g_pGIFactory));
-	if (showErrorMessage(hr, TEXT("GIファクトリ獲得失敗")))
-	{
-		return false;
-	}
-#endif
-
 	// スワップチェーンを作成
 	// ここはDirectX11とあまり変わらない
-	DXGI_SWAP_CHAIN_DESC swapChainDesc;
-	ZeroMemory(&swapChainDesc, sizeof(swapChainDesc));
-	swapChainDesc.BufferCount = 1;
-	swapChainDesc.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-	swapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-	swapChainDesc.OutputWindow = hWnd;
-	swapChainDesc.SampleDesc.Count = 1;
-	swapChainDesc.Windowed = TRUE;
-	swapChainDesc.Flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;
+	// 参考URL:https://msdn.microsoft.com/en-us/library/dn859356(v=vs.85).aspx
+
+	DXGI_SWAP_CHAIN_DESC descSwapChain;
+	ZeroMemory(&descSwapChain, sizeof(descSwapChain));
+	descSwapChain.BufferCount = 2;
+	descSwapChain.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+	descSwapChain.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+	descSwapChain.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
+	descSwapChain.OutputWindow = hWnd;
+	descSwapChain.SampleDesc.Count = 1;
+	descSwapChain.Windowed = TRUE;
 
 	// デバイスじゃなくてコマンドキューを渡す
 	// でないと実行時エラーが起こる
-	hr = g_pGIFactory->CreateSwapChain(g_pCommandQueue, &swapChainDesc, &g_pGISwapChain);
+	hr = g_pGIFactory->CreateSwapChain(g_pCommandQueue, &descSwapChain, &g_pGISwapChain);
 	if (showErrorMessage(hr, TEXT("スワップチェーン作成失敗")))
 	{
 		return false;
