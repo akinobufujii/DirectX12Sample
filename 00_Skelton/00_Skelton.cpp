@@ -79,8 +79,11 @@ enum DESCRIPTOR_HEAP_TYPE
 //==============================================================================
 // グローバル変数
 //==============================================================================
-ID3D12Device*				g_pDevice;											// デバイス
+#if _DEBUG
 ID3D12Debug*				g_pDebug;											// デバッグオブジェクト
+#endif
+
+ID3D12Device*				g_pDevice;											// デバイス
 ID3D12CommandAllocator*		g_pCommandAllocator;								// コマンドアロケータ
 ID3D12CommandQueue*			g_pCommandQueue;									// コマンドキュー
 IDXGIDevice2*				g_pGIDevice;										// GIデバイス
@@ -190,16 +193,15 @@ bool initDirectX(HWND hWnd)
 #if _DEBUG
 	// デバッグレイヤー作成
 	hr = D3D12GetDebugInterface(IID_PPV_ARGS(&g_pDebug));
-
-	if(g_pDebug)
-	{
-		g_pDebug->EnableDebugLayer();
-	}
-
 	if (showErrorMessage(hr, TEXT("デバッグレイヤー作成失敗")))
 	{
 		return false;
 	}
+	if (g_pDebug)
+	{
+		g_pDebug->EnableDebugLayer();
+	}
+
 #endif
 
 	// GIファクトリ獲得
@@ -222,6 +224,8 @@ bool initDirectX(HWND hWnd)
 		pGIAdapter,
 		D3D_FEATURE_LEVEL_11_0,
 		IID_PPV_ARGS(&g_pDevice));
+
+	safeRelease(pGIAdapter);
 
 	if(showErrorMessage(hr, TEXT("デバイス作成失敗")))
 	{
