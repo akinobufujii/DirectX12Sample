@@ -5,7 +5,7 @@ VisualStudioVersion = 14.0.22823.1
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "00_Skelton", "00_Skelton\00_Skelton.vcxproj", "{545DEA03-A510-41D1-8792-9F29F9EB6559}"
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "01_UseTexture", "01_UseTexture\01_UseTexture.vcxproj", "{CD8388B7-6443-442A-8284-CF1A9F0D6611}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "01_TriangleByScreen", "01_TriangleByScreen\01_TriangleByScreen.vcxproj", "{02999F56-378B-4148-B84F-A481A745BAA6}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -23,12 +23,12 @@ Global
 		{545DEA03-A510-41D1-8792-9F29F9EB6559}.Release|x64.Build.0 = Release|x64
 		{545DEA03-A510-41D1-8792-9F29F9EB6559}.Release|x86.ActiveCfg = Release|Win32
 		{545DEA03-A510-41D1-8792-9F29F9EB6559}.Release|x86.Build.0 = Release|Win32
-		{CD8388B7-6443-442A-8284-CF1A9F0D6611}.Debug|x64.ActiveCfg = Debug|Win32
-		{CD8388B7-6443-442A-8284-CF1A9F0D6611}.Debug|x64.Build.0 = Debug|Win32
-		{CD8388B7-6443-442A-8284-CF1A9F0D6611}.Debug|x86.ActiveCfg = Debug|Win32
-		{CD8388B7-6443-442A-8284-CF1A9F0D6611}.Release|x64.ActiveCfg = Release|Win32
-		{CD8388B7-6443-442A-8284-CF1A9F0D6611}.Release|x86.ActiveCfg = Release|Win32
-		{CD8388B7-6443-442A-8284-CF1A9F0D6611}.Release|x86.Build.0 = Release|Win32
+		{02999F56-378B-4148-B84F-A481A745BAA6}.Debug|x64.ActiveCfg = Debug|Win32
+		{02999F56-378B-4148-B84F-A481A745BAA6}.Debug|x86.ActiveCfg = Debug|Win32
+		{02999F56-378B-4148-B84F-A481A745BAA6}.Debug|x86.Build.0 = Debug|Win32
+		{02999F56-378B-4148-B84F-A481A745BAA6}.Release|x64.ActiveCfg = Release|Win32
+		{02999F56-378B-4148-B84F-A481A745BAA6}.Release|x86.ActiveCfg = Release|Win32
+		{02999F56-378B-4148-B84F-A481A745BAA6}.Release|x86.Build.0 = Release|Win32
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
