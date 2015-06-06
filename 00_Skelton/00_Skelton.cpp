@@ -58,7 +58,7 @@ D3D12_CPU_DESCRIPTOR_HANDLE	g_hBackBuffer[BACKBUFFER_COUNT];					// バックバッフ
 bool initDirectX(HWND hWnd)
 {
 	HRESULT hr;
-
+	UINT GIFlag = 0;
 #if _DEBUG
 	// デバッグレイヤー作成
 	hr = D3D12GetDebugInterface(IID_PPV_ARGS(&g_pDebug));
@@ -70,11 +70,12 @@ bool initDirectX(HWND hWnd)
 	{
 		g_pDebug->EnableDebugLayer();
 	}
+	GIFlag = DXGI_CREATE_FACTORY_DEBUG;
 #endif
 
 	// GIファクトリ獲得
 	// デバッグモードのファクトリ作成
-	hr = CreateDXGIFactory2((_DEBUG)? DXGI_CREATE_FACTORY_DEBUG : 0, IID_PPV_ARGS(&g_pGIFactory));
+	hr = CreateDXGIFactory2(GIFlag, IID_PPV_ARGS(&g_pGIFactory));
 	if (showErrorMessage(hr, TEXT("GIファクトリ獲得失敗")))
 	{
 		return false;
