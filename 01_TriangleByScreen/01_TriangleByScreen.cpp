@@ -1,42 +1,21 @@
 //==============================================================================
 // インクルード
 //==============================================================================
-#include <tchar.h>
-#include <Windows.h>
+#include "../libs/akilib/include/D3D12Helper.h"
 
-#include <memory>
+//ドキュメントにはあるって書いているのにない拡張ライブラリ
+// https://msdn.microsoft.com/en-us/library/dn708058(v=vs.85).aspx
+//#include <d3dx12.h.>
 
-#include <d3d12.h>
-/*
-ドキュメントにはあるって書いているのにない拡張ライブラリ
-https://msdn.microsoft.com/en-us/library/dn708058(v=vs.85).aspx
-#include <d3dx12.h>
-*/
-#include <Dxgi1_2.h>
-#include <Dxgi1_3.h>
 #include <Dxgi1_4.h>
 #include <D3d12SDKLayers.h>
-#include <d3dcompiler.h>
 
 #include <DirectXMath.h>
-
-#pragma warning( push )
-#pragma warning( disable: 4013 4068 4312 4456 4457 )
-#define STB_IMAGE_IMPLEMENTATION
-#include "../libs/stb-master/stb_image.h"
-#pragma warning( pop )
-
-//==============================================================================
-// ライブラリリンク
-//==============================================================================
-#pragma comment(lib, "d3d12.lib")
-#pragma comment(lib, "DXGI.lib")
-#pragma comment(lib, "D3DCompiler.lib")
 
 //==============================================================================
 // 定義
 //==============================================================================
-//#define RESOURCE_SETUP	// リソースセットアップをする
+#define RESOURCE_SETUP	// リソースセットアップをする
 
 // 入力レイアウト
 const D3D12_INPUT_ELEMENT_DESC INPUT_LAYOUT[] =
@@ -60,7 +39,7 @@ struct UserVertex
 //==============================================================================
 static const int SCREEN_WIDTH = 1280;				// 画面幅
 static const int SCREEN_HEIGHT = 720;				// 画面高さ
-static const LPTSTR	CLASS_NAME = TEXT("DirectX");	// ウィンドウネーム
+static const LPTSTR	CLASS_NAME = TEXT("01_TriangleByScreen");	// ウィンドウネーム
 static const UINT BACKBUFFER_COUNT = 2;				// バックバッファ数
 
 // ディスクリプタヒープタイプ
@@ -115,81 +94,11 @@ D3D12_VERTEX_BUFFER_VIEW	g_VertexBufferView;									// 頂点バッファビュー
 ID3D12Resource*				g_pTextureResource;									// テクスチャのリソース
 D3D12_CPU_DESCRIPTOR_HANDLE	g_hTexure;											// テクスチャハンドル
 
-// エラーメッセージ
-// エラーが起こったらtrueを返すようにする
-bool showErrorMessage(HRESULT hr, const LPTSTR text)
-{
-	if (FAILED(hr)) 
-	{
-		MessageBox(nullptr, text, TEXT("Error"), MB_OK);
-		return true;
-	}
-
-	return false;
-}
-
-// 安全な開放
-template<typename T>
-void safeRelease(T*& object)
-{
-	if (object)
-	{
-		object->Release();
-		object = nullptr;
-	}
-}
-
-// シェーダコンパイル
-bool compileShaderFlomFile(LPCWSTR pFileName, LPCSTR pEntrypoint, LPCSTR pTarget, ID3DBlob** ppblob)
-{
-	// シェーダコンパイル
-	HRESULT hr;
-	LPD3DBLOB pError = nullptr;
-	hr = D3DCompileFromFile(
-		pFileName, 
-		nullptr,
-		D3D_COMPILE_STANDARD_FILE_INCLUDE,
-		pEntrypoint, 
-		pTarget,
-		0,
-		0,
-		ppblob,
-		&pError);
-
-	if (FAILED(hr))
-	{
-		if (pError && pError->GetBufferPointer())
-		{
-			// エラーコード表示
-#ifdef _UNICODE
-			// Unicodeの時はUnicode文字に変換する
-			int bufferSize = static_cast<int>(pError->GetBufferSize());
-			int strLen = MultiByteToWideChar(CP_ACP, 0, reinterpret_cast<CHAR*>(pError->GetBufferPointer()), bufferSize, nullptr, 0);
-
-			std::shared_ptr<wchar_t> errorStr(new wchar_t[strLen]);
-			MultiByteToWideChar(CP_ACP, 0, reinterpret_cast<char*>(pError->GetBufferPointer()), bufferSize, errorStr.get(), strLen);
-
-			OutputDebugString(errorStr.get());
-#else
-			OutputDebugString(reinterpret_cast<LPSTR>(lperror->GetBufferPointer()));
-#endif
-		}
-
-		safeRelease(pError);
-
-		// コンパイル失敗
-		return false;
-	}
-
-	// コンパイル成功
-	return true;
-}
-
 // DirectX初期化
 bool initDirectX(HWND hWnd)
 {
 	HRESULT hr;
-
+	UINT GIFlag = 0;
 #if _DEBUG
 	// デバッグレイヤー作成
 	hr = D3D12GetDebugInterface(IID_PPV_ARGS(&g_pDebug));
@@ -201,12 +110,12 @@ bool initDirectX(HWND hWnd)
 	{
 		g_pDebug->EnableDebugLayer();
 	}
-
+	GIFlag = DXGI_CREATE_FACTORY_DEBUG;
 #endif
 
 	// GIファクトリ獲得
 	// デバッグモードのファクトリ作成
-	hr = CreateDXGIFactory2((_DEBUG)? DXGI_CREATE_FACTORY_DEBUG : 0, IID_PPV_ARGS(&g_pGIFactory));
+	hr = CreateDXGIFactory2(GIFlag, IID_PPV_ARGS(&g_pGIFactory));
 	if (showErrorMessage(hr, TEXT("GIファクトリ獲得失敗")))
 	{
 		return false;
@@ -405,16 +314,6 @@ bool initDirectX(HWND hWnd)
 	UINT strideHandleBytes = g_pDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
 	for (UINT i = 0; i < BACKBUFFER_COUNT; ++i) 
 	{
-#if 0
-		hr = g_pGISwapChain->GetBuffer(0, IID_PPV_ARGS(&g_pBackBufferResource[i]));
-		if (showErrorMessage(hr, TEXT("レンダーターゲットビュー作成失敗")))
-		{
-			return false;
-		}
-
-		g_hBackBuffer[i] = g_pDescripterHeapArray[DESCRIPTOR_HEAP_TYPE_RTV]->GetCPUDescriptorHandleForHeapStart();
-		g_pDevice->CreateRenderTargetView(g_pBackBufferResource[i], nullptr, g_hBackBuffer[i]);
-#else
 		hr = g_pGISwapChain->GetBuffer(i, IID_PPV_ARGS(&g_pBackBufferResource[i]));
 		if (showErrorMessage(hr, TEXT("レンダーターゲットビュー作成失敗")))
 		{
@@ -423,28 +322,7 @@ bool initDirectX(HWND hWnd)
 		g_hBackBuffer[i] = g_pDescripterHeapArray[DESCRIPTOR_HEAP_TYPE_RTV]->GetCPUDescriptorHandleForHeapStart();
 		g_hBackBuffer[i].ptr += i * strideHandleBytes;	// レンダーターゲットのオフセット分ポインタをずらす
 		g_pDevice->CreateRenderTargetView(g_pBackBufferResource[i], nullptr, g_hBackBuffer[i]);
-#endif
 	}
-
-#if 0
-	// 深度ステンシルビュー作成
-	hr = g_pGISwapChain->GetBuffer(0, __uuidof(ID3D12Resource), reinterpret_cast<void**>(&g_pDepthStencilResource));
-	if (showErrorMessage(hr, TEXT("深度ステンシルビュー作成失敗")))
-	{
-		return false;
-	}
-
-	D3D12_DEPTH_STENCIL_VIEW_DESC depthStencilDesc;
-	ZeroMemory(&depthStencilDesc, sizeof(depthStencilDesc));
-
-	depthStencilDesc.Format = DXGI_FORMAT_D32_FLOAT;			// フォーマット
-	depthStencilDesc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;	// リソースアクセス方法
-	depthStencilDesc.Flags = D3D12_DSV_NONE;					// アクセスフラグ
-	depthStencilDesc.Texture2D.MipSlice = 0;								// 使用する最初のミップマップ
-
-	g_hDepthStencil = g_pDescripterHeapArray[DESCRIPTOR_HEAP_TYPE_DSV]->GetCPUDescriptorHandleForHeapStart();
-	g_pDevice->CreateDepthStencilView(g_pDepthStencilResource, &depthStencilDesc, g_hDepthStencil);
-#endif
 
 	// ビューポート設定
 	g_viewPort.TopLeftX = 0;			// X座標
@@ -515,11 +393,31 @@ bool setupResource()
 
 	// ※ドキュメントには静的データをアップロードヒープに渡すのは推奨しないとのこと
 	// 　ヒープの消費量がよろしくないようです
+	D3D12_HEAP_PROPERTIES heapPropaty;
+	heapPropaty.Type = D3D12_HEAP_TYPE_UPLOAD;
+	heapPropaty.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
+	heapPropaty.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
+	heapPropaty.CreationNodeMask = 0;
+	heapPropaty.VisibleNodeMask = 0;
+
+	D3D12_RESOURCE_DESC descResource;
+	descResource.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+	descResource.Alignment = 0;
+	descResource.Width = ARRAYSIZE(vertex) * sizeof(UserVertex);
+	descResource.Height = 1;
+	descResource.DepthOrArraySize = 1;
+	descResource.MipLevels = 1;
+	descResource.Format = DXGI_FORMAT_UNKNOWN;
+	descResource.SampleDesc.Count = 1;
+	descResource.SampleDesc.Quality = 0;
+	descResource.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+	descResource.Flags = D3D12_RESOURCE_FLAG_NONE;
+
 	hr = g_pDevice->CreateCommittedResource(
-		&CD3D12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
-		D3D12_HEAP_MISC_NONE,
-		&CD3D12_RESOURCE_DESC::Buffer(ARRAYSIZE(vertex) * sizeof(UserVertex)),
-		D3D12_RESOURCE_USAGE_GENERIC_READ,
+		&heapPropaty,
+		D3D12_HEAP_FLAG_NONE,
+		&descResource,
+		D3D12_RESOURCE_STATE_GENERIC_READ,
 		nullptr,
 		__uuidof(ID3D12Resource),
 		reinterpret_cast<void**>(&g_pVertexBufferResource));
@@ -547,72 +445,6 @@ bool setupResource()
 	g_VertexBufferView.StrideInBytes = sizeof(UserVertex);
 	g_VertexBufferView.SizeInBytes = sizeof(vertex);
 
-#if 0
-	// テクスチャ作成
-	// リソースバッファを獲得
-	hr = g_pGISwapChain->GetBuffer(0, IID_PPV_ARGS(&g_pTextureResource));
-	if (showErrorMessage(hr, TEXT("テクスチャー用バッファ獲得失敗")))
-	{
-		return false;
-	}
-	D3D12_SHADER_RESOURCE_VIEW_DESC descSRV;
-	ZeroMemory(&descSRV, sizeof(descSRV));
-	descSRV.Format							= DXGI_FORMAT_R8G8B8A8_UNORM;
-	descSRV.ViewDimension					= D3D12_SRV_DIMENSION_TEXTURE2D;
-	descSRV.Shader4ComponentMapping			= D3D12_ENCODE_SHADER_4_COMPONENT_MAPPING(0,0,0,0);
-	descSRV.Texture2D.MostDetailedMip		= 0;
-	descSRV.Texture2D.MipLevels				= 1;
-	descSRV.Texture2D.PlaneSlice			= 0;
-	descSRV.Texture2D.ResourceMinLODClamp	= 1.0f;
-
-	g_hTexure = g_pDescripterHeapArray[DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV]->GetCPUDescriptorHandleForHeapStart();
-
-	// テクスチャの生データを書き込み
-	int x, y, comp;
-	stbi_uc* pixels = stbi_load("../resource/Ok-icon.png", &x, &y, &comp, 0);
-
-	D3D12_RESOURCE_DESC descResource;
-
-	descResource.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE_2D;
-	descResource.Alignment = 0;
-	descResource.Width = x;
-	descResource.Height = y;
-	descResource.DepthOrArraySize = 2;
-	descResource.MipLevels = 0;
-	descResource.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-	descResource.SampleDesc = {1, 0};
-	descResource.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
-	descResource.MiscFlags = D3D12_RESOURCE_MISC_ALLOW_UNORDERED_ACCESS;
-
-	D3D12_CLEAR_VALUE* clearColor = new D3D12_CLEAR_VALUE[x * y];
-	for (int i = 0; i < y; ++i)
-	{
-		for (int j = 0; j < x; ++j) 
-		{
-			D3D12_CLEAR_VALUE& color = clearColor[i * y + j];
-			color.Color[0] = static_cast<float>(pixels[i * y + j * comp + 0]) / 255.f;
-			color.Color[1] = static_cast<float>(pixels[i * y + j * comp + 1]) / 255.f;
-			color.Color[2] = static_cast<float>(pixels[i * y + j * comp + 2]) / 255.f;
-			color.Color[3] = static_cast<float>(pixels[i * y + j * comp + 3]) / 255.f;
-			color.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-		}
-	}
-
-	g_pDevice->CreateCommittedResource(
-		&CD3D12_HEAP_PROPERTIES(D3D12_HEAP_TYPE::D3D12_HEAP_TYPE_DEFAULT),
-		D3D12_HEAP_MISC_SHARED,
-		&descResource,
-		D3D12_RESOURCE_USAGE_PIXEL_SHADER_RESOURCE,
-		nullptr,//clearColor,
-		IID_PPV_ARGS(&g_pTextureResource));
-
-	g_pDevice->CreateShaderResourceView(g_pTextureResource, nullptr, g_hTexure);
-	g_pTextureResource->SetName(TEXT("テクスチャ"));
-
-	delete [] clearColor;
-	stbi_image_free(pixels);
-
-#endif
 	return true;
 }
 #endif
@@ -624,21 +456,6 @@ void cleanupResource()
 	safeRelease(g_pVertexBufferResource);
 }
 #endif
-
-// リソース設定時のバリア関数
-void setResourceBarrier(ID3D12GraphicsCommandList* commandList, ID3D12Resource* resource, D3D12_RESOURCE_STATES StateBefore, D3D12_RESOURCE_STATES StateAfter)
-{
-	D3D12_RESOURCE_BARRIER descBarrier = {};
-	ZeroMemory(&descBarrier, sizeof(descBarrier));
-
-	descBarrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-	descBarrier.Transition.pResource = resource;
-	descBarrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-	descBarrier.Transition.StateBefore = StateBefore;
-	descBarrier.Transition.StateAfter = StateAfter;
-
-	commandList->ResourceBarrier(1, &descBarrier);
-}
 
 // 描画
 void Render()
@@ -681,7 +498,7 @@ void Render()
 #if defined(RESOURCE_SETUP)
 	// 三角形描画
 	pCommand->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-	pCommand->SetVertexBuffers(0, &g_VertexBufferView, 1);
+	pCommand->IASetVertexBuffers(0, 1, &g_VertexBufferView);
 	pCommand->DrawInstanced(3, 1, 0, 0);
 #endif
 	
