@@ -75,7 +75,7 @@ bool compileShaderFlomFile(LPCWSTR pFileName, LPCSTR pEntrypoint, LPCSTR pTarget
 
 			OutputDebugString(errorStr.get());
 #else
-			OutputDebugString(reinterpret_cast<LPSTR>(lperror->GetBufferPointer()));
+			OutputDebugString(reinterpret_cast<LPSTR>(pError->GetBufferPointer()));
 #endif
 		}
 

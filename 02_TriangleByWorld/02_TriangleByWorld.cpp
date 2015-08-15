@@ -48,7 +48,7 @@ static const LPTSTR	CLASS_NAME = TEXT("02_TriangleByWorld");	// ウィンドウネーム
 static const UINT BACKBUFFER_COUNT = 2;				// バックバッファ数
 
 // ディスクリプタヒープタイプ
-enum DESCRIPTOR_HEAP_TYPE 
+enum DESCRIPTOR_HEAP_TYPE
 {
 	DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,	// UAVなど用
 	DESCRIPTOR_HEAP_TYPE_SAMPLER,		// サンプラ用
@@ -102,11 +102,11 @@ bool initDirectX(HWND hWnd)
 #if _DEBUG
 	// デバッグレイヤー作成
 	hr = D3D12GetDebugInterface(IID_PPV_ARGS(&g_pDebug));
-	if (showErrorMessage(hr, TEXT("デバッグレイヤー作成失敗")))
+	if(showErrorMessage(hr, TEXT("デバッグレイヤー作成失敗")))
 	{
 		return false;
 	}
-	if (g_pDebug)
+	if(g_pDebug)
 	{
 		g_pDebug->EnableDebugLayer();
 	}
@@ -116,18 +116,18 @@ bool initDirectX(HWND hWnd)
 	// GIファクトリ獲得
 	// デバッグモードのファクトリ作成
 	hr = CreateDXGIFactory2(GIFlag, IID_PPV_ARGS(&g_pGIFactory));
-	if (showErrorMessage(hr, TEXT("GIファクトリ獲得失敗")))
+	if(showErrorMessage(hr, TEXT("GIファクトリ獲得失敗")))
 	{
 		return false;
 	}
 
 	IDXGIAdapter* pGIAdapter = nullptr;
 	hr = g_pGIFactory->EnumAdapters(0, &pGIAdapter);
-	if (showErrorMessage(hr, TEXT("GIアダプター獲得失敗")))
+	if(showErrorMessage(hr, TEXT("GIアダプター獲得失敗")))
 	{
 		return false;
 	}
-	
+
 	// デバイス作成
 	hr = D3D12CreateDevice(
 		pGIAdapter,
@@ -146,7 +146,7 @@ bool initDirectX(HWND hWnd)
 		D3D12_COMMAND_LIST_TYPE_DIRECT,
 		IID_PPV_ARGS(&g_pCommandAllocator));
 
-	if (showErrorMessage(hr, TEXT("コマンドアロケータ作成失敗")))
+	if(showErrorMessage(hr, TEXT("コマンドアロケータ作成失敗")))
 	{
 		hr = g_pDevice->GetDeviceRemovedReason();
 		return false;
@@ -163,7 +163,7 @@ bool initDirectX(HWND hWnd)
 
 	hr = g_pDevice->CreateCommandQueue(&commandQueueDesk, IID_PPV_ARGS(&g_pCommandQueue));
 
-	if (showErrorMessage(hr, TEXT("コマンドキュー作成失敗")))
+	if(showErrorMessage(hr, TEXT("コマンドキュー作成失敗")))
 	{
 		return false;
 	}
@@ -185,7 +185,7 @@ bool initDirectX(HWND hWnd)
 	// デバイスじゃなくてコマンドキューを渡す
 	// でないと実行時エラーが起こる
 	hr = g_pGIFactory->CreateSwapChain(g_pCommandQueue, &descSwapChain, reinterpret_cast<IDXGISwapChain**>(&g_pGISwapChain));
-	if (showErrorMessage(hr, TEXT("スワップチェーン作成失敗")))
+	if(showErrorMessage(hr, TEXT("スワップチェーン作成失敗")))
 	{
 		return false;
 	}
@@ -198,19 +198,19 @@ bool initDirectX(HWND hWnd)
 		g_pPipelineState,
 		IID_PPV_ARGS(&g_pGraphicsCommandList));
 
-	if (showErrorMessage(hr, TEXT("コマンドラインリスト作成失敗")))
+	if(showErrorMessage(hr, TEXT("コマンドラインリスト作成失敗")))
 	{
 		return false;
 	}
-	
+
 	// 頂点シェーダコンパイル
-	if (compileShaderFlomFile(L"VertexShader.hlsl", "main", "vs_5_1", &g_pVSBlob) == false)
+	if(compileShaderFlomFile(L"VertexShader.hlsl", "main", "vs_5_1", &g_pVSBlob) == false)
 	{
 		showErrorMessage(E_FAIL, TEXT("頂点シェーダコンパイル失敗"));
 	}
 
 	// ピクセルシェーダコンパイル
-	if (compileShaderFlomFile(L"PixelShader.hlsl", "main", "ps_5_1", &g_pPSBlob) == false)
+	if(compileShaderFlomFile(L"PixelShader.hlsl", "main", "ps_5_1", &g_pPSBlob) == false)
 	{
 		showErrorMessage(E_FAIL, TEXT("ピクセルシェーダコンパイル失敗"));
 	}
@@ -234,7 +234,7 @@ bool initDirectX(HWND hWnd)
 
 	LPD3DBLOB pOutBlob = nullptr;
 	D3D12_ROOT_SIGNATURE_DESC descRootSignature = D3D12_ROOT_SIGNATURE_DESC();
-	descRootSignature.Flags = 
+	descRootSignature.Flags =
 		D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT |
 		D3D12_ROOT_SIGNATURE_FLAG_DENY_HULL_SHADER_ROOT_ACCESS |
 		D3D12_ROOT_SIGNATURE_FLAG_DENY_DOMAIN_SHADER_ROOT_ACCESS |
@@ -252,7 +252,7 @@ bool initDirectX(HWND hWnd)
 		IID_PPV_ARGS(&g_pRootSignature));
 
 	safeRelease(pOutBlob);
-	if (showErrorMessage(hr, TEXT("ルートシグニチャ作成失敗")))
+	if(showErrorMessage(hr, TEXT("ルートシグニチャ作成失敗")))
 	{
 		return false;
 	}
@@ -279,7 +279,7 @@ bool initDirectX(HWND hWnd)
 	descBlend.AlphaToCoverageEnable = FALSE;
 	descBlend.IndependentBlendEnable = FALSE;
 	descBlend.RenderTarget[0].BlendEnable = FALSE;
-	descBlend.RenderTarget[0].LogicOpEnable	= FALSE;
+	descBlend.RenderTarget[0].LogicOpEnable = FALSE;
 	descBlend.RenderTarget[0].SrcBlend = D3D12_BLEND_ONE;
 	descBlend.RenderTarget[0].DestBlend = D3D12_BLEND_ZERO;
 	descBlend.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
@@ -309,7 +309,7 @@ bool initDirectX(HWND hWnd)
 
 	hr = g_pDevice->CreateGraphicsPipelineState(&descPSO, IID_PPV_ARGS(&g_pPipelineState));
 
-	if (showErrorMessage(hr, TEXT("パイプラインステートオブジェクト作成失敗")))
+	if(showErrorMessage(hr, TEXT("パイプラインステートオブジェクト作成失敗")))
 	{
 		return false;
 	}
@@ -320,13 +320,13 @@ bool initDirectX(HWND hWnd)
 
 	heapDesc.NumDescriptors = BACKBUFFER_COUNT;
 
-	for (int i = 0; i < DESCRIPTOR_HEAP_TYPE_MAX; ++i)
+	for(int i = 0; i < DESCRIPTOR_HEAP_TYPE_MAX; ++i)
 	{
 		heapDesc.Flags = (i == D3D12_DESCRIPTOR_HEAP_TYPE_RTV || i == D3D12_DESCRIPTOR_HEAP_TYPE_DSV) ? D3D12_DESCRIPTOR_HEAP_FLAG_NONE : D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
 		heapDesc.Type = static_cast<D3D12_DESCRIPTOR_HEAP_TYPE>(i);
-		
+
 		hr = g_pDevice->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(&g_pDescripterHeapArray[i]));
-		if (showErrorMessage(hr, TEXT("ディスクリプタヒープ作成失敗")))
+		if(showErrorMessage(hr, TEXT("ディスクリプタヒープ作成失敗")))
 		{
 			return false;
 		}
@@ -337,10 +337,10 @@ bool initDirectX(HWND hWnd)
 
 	// レンダーターゲットビュー(バックバッファ)を作成
 	UINT strideHandleBytes = g_pDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
-	for (UINT i = 0; i < BACKBUFFER_COUNT; ++i) 
+	for(UINT i = 0; i < BACKBUFFER_COUNT; ++i)
 	{
 		hr = g_pGISwapChain->GetBuffer(i, IID_PPV_ARGS(&g_pBackBufferResource[i]));
-		if (showErrorMessage(hr, TEXT("レンダーターゲットビュー作成失敗")))
+		if(showErrorMessage(hr, TEXT("レンダーターゲットビュー作成失敗")))
 		{
 			return false;
 		}
@@ -360,7 +360,7 @@ bool initDirectX(HWND hWnd)
 	// フェンスオブジェクト作成
 	g_pDevice->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&g_pFence));
 
-	if (showErrorMessage(hr, TEXT("フェンスオブジェクト作成失敗")))
+	if(showErrorMessage(hr, TEXT("フェンスオブジェクト作成失敗")))
 	{
 		return false;
 	}
@@ -376,11 +376,11 @@ void cleanupDirectX()
 {
 	CloseHandle(g_hFenceEvent);
 	safeRelease(g_pFence);
-	for (UINT i = 0; i < BACKBUFFER_COUNT; ++i)
+	for(UINT i = 0; i < BACKBUFFER_COUNT; ++i)
 	{
 		safeRelease(g_pBackBufferResource[i]);
 	}
-	for (int i = 0; i < DESCRIPTOR_HEAP_TYPE_MAX; ++i)
+	for(int i = 0; i < DESCRIPTOR_HEAP_TYPE_MAX; ++i)
 	{
 		safeRelease(g_pDescripterHeapArray[i]);
 	}
@@ -388,7 +388,7 @@ void cleanupDirectX()
 	safeRelease(g_pRootSignature);
 	safeRelease(g_pPSBlob);
 	safeRelease(g_pVSBlob);
-	
+
 	safeRelease(g_pGISwapChain);
 	safeRelease(g_pGIFactory);
 	safeRelease(g_pGIAdapter);
@@ -447,14 +447,14 @@ bool setupResource()
 			nullptr,
 			IID_PPV_ARGS(&g_pVertexBufferResource));
 
-		if (showErrorMessage(hr, TEXT("頂点バッファ作成失敗")))
+		if(showErrorMessage(hr, TEXT("頂点バッファ作成失敗")))
 		{
 			return false;
 		}
 
 		// 頂点バッファに三角形情報をコピーする
 		UINT8* dataBegin;
-		if (SUCCEEDED(g_pVertexBufferResource->Map(0, nullptr, reinterpret_cast<void**>(&dataBegin))))
+		if(SUCCEEDED(g_pVertexBufferResource->Map(0, nullptr, reinterpret_cast<void**>(&dataBegin))))
 		{
 			memcpy(dataBegin, vertex, sizeof(vertex));
 			g_pVertexBufferResource->Unmap(0, nullptr);
@@ -501,17 +501,17 @@ bool setupResource()
 			nullptr,
 			IID_PPV_ARGS(&g_pConstantBufferResource));
 
-		if (showErrorMessage(hr, TEXT("コンスタントバッファ作成失敗")))
+		if(showErrorMessage(hr, TEXT("コンスタントバッファ作成失敗")))
 		{
 			return false;
 		}
 
 		// コンスタントバッファビューを作成
 		D3D12_CONSTANT_BUFFER_VIEW_DESC descConstantBufferView = {};
-		
-		descConstantBufferView.BufferLocation	= g_pConstantBufferResource->GetGPUVirtualAddress();
-		descConstantBufferView.SizeInBytes		= (sizeof(cbMatrix) + 255) & ~255;	// コンスタントバッファは256倍とアラインメントで配置する必要がある
-		
+
+		descConstantBufferView.BufferLocation = g_pConstantBufferResource->GetGPUVirtualAddress();
+		descConstantBufferView.SizeInBytes = (sizeof(cbMatrix) + 255) & ~255;	// コンスタントバッファは256倍とアラインメントで配置する必要がある
+
 		g_pDevice->CreateConstantBufferView(
 			&descConstantBufferView,
 			g_pDescripterHeapArray[DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV]->GetCPUDescriptorHandleForHeapStart());
@@ -584,7 +584,7 @@ void Render()
 		1,
 		1000);
 
-	static XMFLOAT3 rotation(0 ,0 ,0);
+	static XMFLOAT3 rotation(0, 0, 0);
 	rotation.x = fmod(rotation.x + 1.f, 360.f);
 	rotation.y = fmod(rotation.y + 2.f, 360.f);
 	rotation.z = fmod(rotation.z + 3.f, 360.f);
@@ -592,12 +592,12 @@ void Render()
 	XMMATRIX world = XMMatrixRotationRollPitchYaw(
 		XMConvertToRadians(rotation.x),
 		XMConvertToRadians(rotation.x),
-		XMConvertToRadians(rotation.z) );
+		XMConvertToRadians(rotation.z));
 
 	g_ConstantBufferData._WVP = XMMatrixTranspose(world * view * proj);
 
 	UINT8* dataBegin;
-	if (SUCCEEDED(g_pConstantBufferResource->Map(0, nullptr, reinterpret_cast<void**>(&dataBegin))))
+	if(SUCCEEDED(g_pConstantBufferResource->Map(0, nullptr, reinterpret_cast<void**>(&dataBegin))))
 	{
 		memcpy(dataBegin, &g_ConstantBufferData, sizeof(g_ConstantBufferData));
 		g_pConstantBufferResource->Unmap(0, nullptr);
@@ -617,7 +617,7 @@ void Render()
 	pCommand->IASetVertexBuffers(0, 1, &g_VertexBufferView);
 	pCommand->DrawInstanced(3, 1, 0, 0);
 #endif
-	
+
 	// present前の処理
 	setResourceBarrier(
 		pCommand,
@@ -636,7 +636,7 @@ void Render()
 	g_pCommandQueue->Signal(g_pFence, FENCE_INDEX);
 	g_CurrentFenceIndex++;
 
-	if (g_pFence->GetCompletedValue() < FENCE_INDEX)
+	if(g_pFence->GetCompletedValue() < FENCE_INDEX)
 	{
 		g_pFence->SetEventOnCompletion(FENCE_INDEX, g_hFenceEvent);
 		WaitForSingleObject(g_hFenceEvent, INFINITE);
@@ -651,10 +651,10 @@ void Render()
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 {
 	// メッセージ分岐
-	switch (msg)
+	switch(msg)
 	{
 	case WM_KEYDOWN:	// キーが押された時
-		switch (wparam)
+		switch(wparam)
 		{
 		case VK_ESCAPE:
 			DestroyWindow(hwnd);
@@ -689,7 +689,7 @@ int APIENTRY _tWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPTSTR lpCm
 	winc.lpszClassName = CLASS_NAME;
 
 	// ウィンドウクラス登録
-	if (RegisterClass(&winc) == false)
+	if(RegisterClass(&winc) == false)
 	{
 		return 1;
 	}
@@ -705,19 +705,19 @@ int APIENTRY _tWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPTSTR lpCm
 		hInstance,
 		NULL);
 
-	if (hwnd == NULL)
+	if(hwnd == NULL)
 	{
 		return 1;
 	}
 
 	// DirectX初期化
-	if (initDirectX(hwnd) == false)
+	if(initDirectX(hwnd) == false)
 	{
 		return 1;
 	}
 
 #if defined(RESOURCE_SETUP)
-	if (setupResource() == false) 
+	if(setupResource() == false)
 	{
 		return 1;
 	}
@@ -728,7 +728,7 @@ int APIENTRY _tWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPTSTR lpCm
 
 	// メッセージループ
 	do {
-		if (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE))
+		if(PeekMessage(&msg, NULL, 0, 0, PM_REMOVE))
 		{
 			TranslateMessage(&msg);
 			DispatchMessage(&msg);
@@ -738,7 +738,7 @@ int APIENTRY _tWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPTSTR lpCm
 			// メイン
 			Render();
 		}
-	} while (msg.message != WM_QUIT);
+	} while(msg.message != WM_QUIT);
 
 	// 解放処理
 #if defined(RESOURCE_SETUP)
