@@ -97,14 +97,9 @@ LPD3DBLOB					g_pPSBlob;											// ピクセルシェーダブロブ
 ID3D12Resource*				g_pVertexBufferResource;							// 頂点バッファのリソース
 D3D12_VERTEX_BUFFER_VIEW	g_VertexBufferView;									// 頂点バッファビュー
 
-ID3D12Resource*				g_pConstantBufferResource;							// コンスタントバッファリソース
-cbMatrix					g_ConstantBufferData;								// コンスタントバッファの実データ
-
 ID3D12Heap*					g_pTextureHeap;										// テクスチャヒープ
 ID3D12Resource*				g_pTextureResource;									// テクスチャリソース
-D3D12_CPU_DESCRIPTOR_HANDLE	g_hTexure;											// テクスチャハンドル
-D3D12_GPU_DESCRIPTOR_HANDLE g_hGPUTexture;										// GPUテクスチャハンドル
-
+ID3D12Resource*				g_pTextureUploadHeap;								// テクスチャアップロードヒープ
 
 // DirectX初期化
 bool initDirectX(HWND hWnd)
@@ -222,23 +217,55 @@ bool initDirectX(HWND hWnd)
 	}
 
 	// ピクセルシェーダコンパイル
-	if(compileShaderFlomFile(L"PixelShader.hlsl", "main", "ps_5_0", &g_pPSBlob) == false)
+	if(compileShaderFlomFile(L"PixelShaderByTexture.hlsl", "main", "ps_5_0", &g_pPSBlob) == false)
 	{
 		showErrorMessage(E_FAIL, TEXT("ピクセルシェーダコンパイル失敗"));
 	}
 
-	// 空のルートシグニチャ作成
-	LPD3DBLOB pOutBlob = nullptr;
-	D3D12_ROOT_SIGNATURE_DESC descRootSignature = D3D12_ROOT_SIGNATURE_DESC();
-	descRootSignature.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
-	D3D12SerializeRootSignature(&descRootSignature, D3D_ROOT_SIGNATURE_VERSION_1, &pOutBlob, nullptr);
+	CD3DX12_DESCRIPTOR_RANGE ranges[1];
+	ranges[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0);
+
+	CD3DX12_ROOT_PARAMETER rootParameters[1];
+	rootParameters[0].InitAsDescriptorTable(1, &ranges[0], D3D12_SHADER_VISIBILITY_PIXEL);
+
+	D3D12_STATIC_SAMPLER_DESC sampler = {};
+	sampler.Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
+	sampler.AddressU = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+	sampler.AddressV = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+	sampler.AddressW = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+	sampler.MipLODBias = 0;
+	sampler.MaxAnisotropy = 0;
+	sampler.ComparisonFunc = D3D12_COMPARISON_FUNC_NEVER;
+	sampler.BorderColor = D3D12_STATIC_BORDER_COLOR_TRANSPARENT_BLACK;
+	sampler.MinLOD = 0.0f;
+	sampler.MaxLOD = D3D12_FLOAT32_MAX;
+	sampler.ShaderRegister = 0;
+	sampler.RegisterSpace = 0;
+	sampler.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+
+	CD3DX12_ROOT_SIGNATURE_DESC rootSignatureDesc;
+	rootSignatureDesc.Init(_countof(rootParameters), rootParameters, 1, &sampler, D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+
+	Microsoft::WRL::ComPtr<ID3DBlob> signature;
+	Microsoft::WRL::ComPtr<ID3DBlob> error;
+
+	hr = D3D12SerializeRootSignature(
+		&rootSignatureDesc,
+		D3D_ROOT_SIGNATURE_VERSION_1,
+		&signature,
+		&error);
+
+	if(showErrorMessage(hr, TEXT("ルートシグニチャシリアライズ失敗")))
+	{
+		return false;
+	}
+
 	hr = g_pDevice->CreateRootSignature(
-		0x00000001,
-		pOutBlob->GetBufferPointer(),
-		pOutBlob->GetBufferSize(),
+		0,
+		signature->GetBufferPointer(),
+		signature->GetBufferSize(),
 		IID_PPV_ARGS(&g_pRootSignature));
 
-	safeRelease(pOutBlob);
 	if(showErrorMessage(hr, TEXT("ルートシグニチャ作成失敗")))
 	{
 		return false;
@@ -462,55 +489,6 @@ bool setupResource()
 	g_VertexBufferView.StrideInBytes = sizeof(UserVertex);
 	g_VertexBufferView.SizeInBytes = sizeof(vertex);
 
-#if 0
-	// コンスタントバッファ作成
-	{
-		D3D12_HEAP_PROPERTIES heapPropaty;
-		heapPropaty.Type = D3D12_HEAP_TYPE_UPLOAD;
-		heapPropaty.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
-		heapPropaty.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
-		heapPropaty.CreationNodeMask = 1;
-		heapPropaty.VisibleNodeMask = 1;
-
-		D3D12_RESOURCE_DESC descResource;
-		descResource.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-		descResource.Alignment = 0;
-		descResource.Width = sizeof(cbMatrix);
-		descResource.Height = 1;
-		descResource.DepthOrArraySize = 1;
-		descResource.MipLevels = 1;
-		descResource.Format = DXGI_FORMAT_UNKNOWN;
-		descResource.SampleDesc.Count = 1;
-		descResource.SampleDesc.Quality = 0;
-		descResource.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-		descResource.Flags = D3D12_RESOURCE_FLAG_NONE;
-
-		hr = g_pDevice->CreateCommittedResource(
-			&heapPropaty,
-			D3D12_HEAP_FLAG_NONE,
-			&descResource,
-			D3D12_RESOURCE_STATE_GENERIC_READ,
-			nullptr,
-			IID_PPV_ARGS(&g_pConstantBufferResource));
-
-		if(showErrorMessage(hr, TEXT("コンスタントバッファ作成失敗")))
-		{
-			return false;
-		}
-
-		// コンスタントバッファビューを作成
-		D3D12_CONSTANT_BUFFER_VIEW_DESC descConstantBufferView = {};
-
-		descConstantBufferView.BufferLocation = g_pConstantBufferResource->GetGPUVirtualAddress();
-		descConstantBufferView.SizeInBytes = (sizeof(cbMatrix) + 255) & ~255;	// コンスタントバッファは256倍とアラインメントで配置する必要がある
-
-		g_pDevice->CreateConstantBufferView(
-			&descConstantBufferView,
-			g_pDescripterHeapArray[DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV]->GetCPUDescriptorHandleForHeapStart());
-	}
-#endif
-
-#if 0	// 何故か作成するとGPUハングで止まる
 	// テクスチャ作成
 	// GPU上にテクスチャをロードするためにアップロードヒープを作成します。
 	// ComPtrのは、CPUのオブジェクトですが、このヒープは、GPUの作業が完了するまでの範囲に滞在する必要があります。
@@ -521,7 +499,7 @@ bool setupResource()
 		stbi_uc* pixels = stbi_load("../resource/お気に入り.png", &width, &height, &comp, 0);
 
 		// テクスチャデータ作成
-		D3D12_RESOURCE_DESC descResource;
+		D3D12_RESOURCE_DESC descResource = {};
 		descResource.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
 		descResource.Alignment = 0;
 		descResource.Width = width;
@@ -548,15 +526,15 @@ bool setupResource()
 		}
 
 		// GPUアップロードバッファを作成
-		Microsoft::WRL::ComPtr<ID3D12Resource> textureUploadHeap;
+		const UINT64 uploadBufferSize = GetRequiredIntermediateSize(g_pTextureResource, 0, 1);
 
 		hr = g_pDevice->CreateCommittedResource(
 			&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
 			D3D12_HEAP_FLAG_NONE,
-			&CD3DX12_RESOURCE_DESC::Buffer(GetRequiredIntermediateSize(g_pTextureResource, 0, 1)),
+			&CD3DX12_RESOURCE_DESC::Buffer(uploadBufferSize),
 			D3D12_RESOURCE_STATE_GENERIC_READ,
 			nullptr,
-			IID_PPV_ARGS(&textureUploadHeap));
+			IID_PPV_ARGS(&g_pTextureUploadHeap));
 
 		if(showErrorMessage(hr, TEXT("GPUアップロードバッファを作成失敗")))
 		{
@@ -569,13 +547,23 @@ bool setupResource()
 		textureData.RowPitch = width * 4;	// 幅×ピクセルのバイト数
 		textureData.SlicePitch = textureData.RowPitch * height;
 
-		UpdateSubresources(g_pGraphicsCommandList, g_pTextureResource, textureUploadHeap.Get(), 0, 0, 1, &textureData);
+		UpdateSubresources(g_pGraphicsCommandList, g_pTextureResource, g_pTextureUploadHeap, 0, 0, 1, &textureData);
 		g_pGraphicsCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(g_pTextureResource, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE));
 
 		// いらないもの解放
 		stbi_image_free(pixels);
+
+		// Describe and create a SRV for the texture.
+		D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+		srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+		srvDesc.Format = descResource.Format;
+		srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+		srvDesc.Texture2D.MipLevels = 1;
+		g_pDevice->CreateShaderResourceView(
+			g_pTextureResource,
+			&srvDesc,
+			g_pDescripterHeapArray[DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV]->GetCPUDescriptorHandleForHeapStart());
 	}
-#endif
 
 	return true;
 }
@@ -585,8 +573,8 @@ bool setupResource()
 // リソースクリーンアップ
 void cleanupResource()
 {
+	safeRelease(g_pTextureUploadHeap);
 	safeRelease(g_pTextureResource);
-	safeRelease(g_pConstantBufferResource);
 	safeRelease(g_pVertexBufferResource);
 }
 #endif
@@ -614,6 +602,10 @@ void Render()
 	// レンダーターゲットビューを設定
 	pCommand->OMSetRenderTargets(1, &g_hBackBuffer[g_CurrentBuckBufferIndex], TRUE, nullptr);
 
+	// テクスチャの設定
+	pCommand->SetDescriptorHeaps(1, &g_pDescripterHeapArray[DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV]);
+	pCommand->SetGraphicsRootDescriptorTable(0, g_pDescripterHeapArray[DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV]->GetGPUDescriptorHandleForHeapStart());
+
 	// レンダーターゲットへリソースを設定
 	setResourceBarrier(
 		pCommand,
@@ -630,48 +622,6 @@ void Render()
 	pCommand->ClearRenderTargetView(g_hBackBuffer[g_CurrentBuckBufferIndex], clearColor, 1, &clearRect);
 
 #if defined(RESOURCE_SETUP)
-
-	//// コンスタントバッファ更新
-	//using namespace DirectX;
-
-	//XMMATRIX view = XMMatrixLookAtLH(
-	//	XMLoadFloat3(&XMFLOAT3(0, 0, -5)),
-	//	XMLoadFloat3(&XMFLOAT3(0, 0, 0)),
-	//	XMLoadFloat3(&XMFLOAT3(0, 1, 0)));
-
-	//XMMATRIX proj = XMMatrixPerspectiveFovLH(
-	//	XMConvertToRadians(60),
-	//	static_cast<float>(SCREEN_WIDTH) / static_cast<float>(SCREEN_HEIGHT),
-	//	1,
-	//	1000);
-
-	//static XMFLOAT3 rotation(0, 0, 0);
-	//rotation.x = fmod(rotation.x + 1.f, 360.f);
-	//rotation.y = fmod(rotation.y + 2.f, 360.f);
-	//rotation.z = fmod(rotation.z + 3.f, 360.f);
-
-	//XMMATRIX world = XMMatrixRotationRollPitchYaw(
-	//	XMConvertToRadians(rotation.x),
-	//	XMConvertToRadians(rotation.y),
-	//	XMConvertToRadians(rotation.z));
-
-	//g_ConstantBufferData._WVP = XMMatrixTranspose(world * view * proj);
-
-	//UINT8* dataBegin;
-	//if(SUCCEEDED(g_pConstantBufferResource->Map(0, nullptr, reinterpret_cast<void**>(&dataBegin))))
-	//{
-	//	memcpy(dataBegin, &g_ConstantBufferData, sizeof(g_ConstantBufferData));
-	//	g_pConstantBufferResource->Unmap(0, nullptr);
-	//}
-	//else
-	//{
-	//	showErrorMessage(S_FALSE, TEXT("コンスタントバッファのマップに失敗しました"));
-	//}
-
-	//// コンスタントバッファを設定
-	//ID3D12DescriptorHeap* pHeaps[] = { g_pDescripterHeapArray[DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV] };
-	//pCommand->SetDescriptorHeaps(ARRAYSIZE(pHeaps), pHeaps);
-	//pCommand->SetGraphicsRootDescriptorTable(0, g_pDescripterHeapArray[DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV]->GetGPUDescriptorHandleForHeapStart());
 
 	// 板ポリゴン描画
 	pCommand->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
