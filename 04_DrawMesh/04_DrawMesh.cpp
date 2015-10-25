@@ -714,7 +714,8 @@ void Render()
 		// ŽOŠpŒ`•`‰æ
 		pCommand->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 		pCommand->IASetVertexBuffers(0, 1, &g_VertexBufferView);
-		pCommand->DrawInstanced(12, 4, 0, 0);
+		pCommand->IASetIndexBuffer(&g_IndexBufferView);
+		pCommand->DrawIndexedInstanced(36, 1, 0, 0, 0);
 	}
 
 #if 0	// 2‚Â–Ú
