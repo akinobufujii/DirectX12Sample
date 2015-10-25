@@ -85,6 +85,9 @@ UINT						g_CurrentBuckBufferIndex = 0;						// 現在のバックバッファ
 ID3D12Resource*				g_pBackBufferResource[BACKBUFFER_COUNT];			// バックバッファのリソース
 D3D12_CPU_DESCRIPTOR_HANDLE	g_hBackBuffer[BACKBUFFER_COUNT];					// バックバッファハンドル
 
+ID3D12Resource*				g_pDepthStencilResource;							// デプスステンシルのリソース
+D3D12_CPU_DESCRIPTOR_HANDLE	g_hDepthStencil;									// デプスステンシルハンドル
+
 LPD3DBLOB					g_pVSBlob;											// 頂点シェーダブロブ
 LPD3DBLOB					g_pPSBlob;											// ピクセルシェーダブロブ
 
@@ -386,6 +389,36 @@ bool initDirectX(HWND hWnd)
 	}
 
 	// デプスステンシル作成
+	{
+		D3D12_DEPTH_STENCIL_VIEW_DESC depthStencilDesc = {};
+		depthStencilDesc.Format = DXGI_FORMAT_D32_FLOAT;
+		depthStencilDesc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
+		depthStencilDesc.Flags = D3D12_DSV_FLAG_NONE;
+
+		D3D12_CLEAR_VALUE depthOptimizedClearValue = {};
+		depthOptimizedClearValue.Format = DXGI_FORMAT_D32_FLOAT;
+		depthOptimizedClearValue.DepthStencil.Depth = 1.0f;
+		depthOptimizedClearValue.DepthStencil.Stencil = 0;
+
+		hr = g_pDevice->CreateCommittedResource(
+			&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
+			D3D12_HEAP_FLAG_NONE,
+			&CD3DX12_RESOURCE_DESC::Tex2D(DXGI_FORMAT_D32_FLOAT, SCREEN_WIDTH, SCREEN_HEIGHT, 1, 0, 1, 0, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL),
+			D3D12_RESOURCE_STATE_DEPTH_WRITE,
+			&depthOptimizedClearValue,
+			IID_PPV_ARGS(&g_pDepthStencilResource));
+
+		if(showErrorMessage(hr, TEXT("デプスステンシルバッファ作成失敗")))
+		{
+			return false;
+		}
+
+		g_hDepthStencil = g_pDescripterHeapArray[DESCRIPTOR_HEAP_TYPE_DSV]->GetCPUDescriptorHandleForHeapStart();
+		g_pDevice->CreateDepthStencilView(
+			g_pDepthStencilResource,
+			&depthStencilDesc,
+			g_hDepthStencil);
+	}
 
 	// ビューポート設定
 	g_viewPort.TopLeftX = 0;			// X座標
@@ -414,6 +447,7 @@ void cleanupDirectX()
 {
 	CloseHandle(g_hFenceEvent);
 	safeRelease(g_pFence);
+	safeRelease(g_pDepthStencilResource);
 	for(UINT i = 0; i < BACKBUFFER_COUNT; ++i)
 	{
 		safeRelease(g_pBackBufferResource[i]);
@@ -646,7 +680,11 @@ void Render()
 	g_CurrentBuckBufferIndex = g_pGISwapChain->GetCurrentBackBufferIndex();
 
 	// レンダーターゲットビューを設定
-	pCommand->OMSetRenderTargets(1, &g_hBackBuffer[g_CurrentBuckBufferIndex], TRUE, nullptr);
+	pCommand->OMSetRenderTargets(
+		1,
+		&g_hBackBuffer[g_CurrentBuckBufferIndex],
+		FALSE, 
+		&g_hDepthStencil);
 
 	// レンダーターゲットへリソースを設定
 	setResourceBarrier(
@@ -662,6 +700,7 @@ void Render()
 	pCommand->RSSetViewports(1, &g_viewPort);
 	pCommand->RSSetScissorRects(1, &clearRect);
 	pCommand->ClearRenderTargetView(g_hBackBuffer[g_CurrentBuckBufferIndex], clearColor, 1, &clearRect);
+	pCommand->ClearDepthStencilView(g_hDepthStencil, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
 
 #if defined(RESOURCE_SETUP)
 
@@ -825,11 +864,16 @@ int APIENTRY _tWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPTSTR lpCm
 	}
 
 	// ウィンドウ作成
+	RECT windowRect = { 0, 0, static_cast<LONG>(SCREEN_WIDTH), static_cast<LONG>(SCREEN_HEIGHT) };
+	AdjustWindowRect(&windowRect, WS_OVERLAPPEDWINDOW, FALSE);
+
 	hwnd = CreateWindow(
 		CLASS_NAME,
 		CLASS_NAME,
 		WS_OVERLAPPEDWINDOW | WS_VISIBLE,
-		0, 0, SCREEN_WIDTH, SCREEN_HEIGHT,
+		0, 0, 
+		windowRect.right - windowRect.left,
+		windowRect.bottom - windowRect.top,
 		NULL,
 		NULL,
 		hInstance,
