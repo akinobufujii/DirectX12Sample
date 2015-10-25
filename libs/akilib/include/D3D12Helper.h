@@ -10,7 +10,9 @@
 #include <memory>
 
 #include <d3d12.h>
+#include "d3dx12.h"
 #include <d3dcompiler.h>
+#include <wrl.h>
 
 //==============================================================================
 // ƒ‰ƒCƒuƒ‰ƒŠƒŠƒ“ƒN

@@ -8,7 +8,7 @@
 //#include <d3dx12.h.>
 
 #include <Dxgi1_4.h>
-#include <D3d12SDKLayers.h>
+#include <d3d12sdklayers.h>
 
 #include <DirectXMath.h>
 
@@ -216,46 +216,21 @@ bool initDirectX(HWND hWnd)
 	}
 
 	// 頂点シェーダコンパイル
-	if(compileShaderFlomFile(L"VertexShader.hlsl", "main", "vs_5_1", &g_pVSBlob) == false)
+	if(compileShaderFlomFile(L"VertexShader.hlsl", "main", "vs_5_0", &g_pVSBlob) == false)
 	{
 		showErrorMessage(E_FAIL, TEXT("頂点シェーダコンパイル失敗"));
 	}
 
 	// ピクセルシェーダコンパイル
-	if(compileShaderFlomFile(L"PixelShader.hlsl", "main", "ps_5_1", &g_pPSBlob) == false)
+	if(compileShaderFlomFile(L"PixelShader.hlsl", "main", "ps_5_0", &g_pPSBlob) == false)
 	{
 		showErrorMessage(E_FAIL, TEXT("ピクセルシェーダコンパイル失敗"));
 	}
 
-	// 頂点シェーダにコンスタントバッファを渡せるルートシグニチャ作成
-	D3D12_DESCRIPTOR_RANGE range;
-	range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_CBV;
-	range.NumDescriptors = 1;
-	range.BaseShaderRegister = 0;
-	range.RegisterSpace = 0;
-	range.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
-
-	D3D12_ROOT_DESCRIPTOR_TABLE rootDescriptorTable;
-	rootDescriptorTable.NumDescriptorRanges = 1;
-	rootDescriptorTable.pDescriptorRanges = &range;
-
-	D3D12_ROOT_PARAMETER rootParameter;
-	rootParameter.ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-	rootParameter.ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
-	rootParameter.DescriptorTable = rootDescriptorTable;
-
+	// 空のルートシグニチャ作成
 	LPD3DBLOB pOutBlob = nullptr;
 	D3D12_ROOT_SIGNATURE_DESC descRootSignature = D3D12_ROOT_SIGNATURE_DESC();
-	descRootSignature.Flags =
-		D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT |
-		D3D12_ROOT_SIGNATURE_FLAG_DENY_HULL_SHADER_ROOT_ACCESS |
-		D3D12_ROOT_SIGNATURE_FLAG_DENY_DOMAIN_SHADER_ROOT_ACCESS |
-		D3D12_ROOT_SIGNATURE_FLAG_DENY_GEOMETRY_SHADER_ROOT_ACCESS |
-		D3D12_ROOT_SIGNATURE_FLAG_DENY_PIXEL_SHADER_ROOT_ACCESS;
-
-	descRootSignature.NumParameters = 1;
-	descRootSignature.pParameters = &rootParameter;
-
+	descRootSignature.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
 	D3D12SerializeRootSignature(&descRootSignature, D3D_ROOT_SIGNATURE_VERSION_1, &pOutBlob, nullptr);
 	hr = g_pDevice->CreateRootSignature(
 		0x00000001,
@@ -439,8 +414,8 @@ bool setupResource()
 		heapPropaty.Type = D3D12_HEAP_TYPE_UPLOAD;
 		heapPropaty.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
 		heapPropaty.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
-		heapPropaty.CreationNodeMask = 1;
-		heapPropaty.VisibleNodeMask = 1;
+		heapPropaty.CreationNodeMask = 0;
+		heapPropaty.VisibleNodeMask = 0;
 
 		D3D12_RESOURCE_DESC descResource;
 		descResource.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
@@ -487,6 +462,7 @@ bool setupResource()
 	g_VertexBufferView.StrideInBytes = sizeof(UserVertex);
 	g_VertexBufferView.SizeInBytes = sizeof(vertex);
 
+#if 0
 	// コンスタントバッファ作成
 	{
 		D3D12_HEAP_PROPERTIES heapPropaty;
@@ -532,21 +508,19 @@ bool setupResource()
 			&descConstantBufferView,
 			g_pDescripterHeapArray[DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV]->GetCPUDescriptorHandleForHeapStart());
 	}
+#endif
 
+#if 0	// 何故か作成するとGPUハングで止まる
 	// テクスチャ作成
+	// GPU上にテクスチャをロードするためにアップロードヒープを作成します。
+	// ComPtrのは、CPUのオブジェクトですが、このヒープは、GPUの作業が完了するまでの範囲に滞在する必要があります。
+	// ComPtrが破壊される前に、我々は、このメソッドの最後でGPUと同期します。
 	{
 		// 画像データ読み込み
 		int width, height, comp;
 		stbi_uc* pixels = stbi_load("../resource/お気に入り.png", &width, &height, &comp, 0);
 
 		// テクスチャデータ作成
-		D3D12_HEAP_PROPERTIES heapPropaty;
-		heapPropaty.Type = D3D12_HEAP_TYPE_UPLOAD;
-		heapPropaty.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
-		heapPropaty.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
-		heapPropaty.CreationNodeMask = 1;
-		heapPropaty.VisibleNodeMask = 1;
-
 		D3D12_RESOURCE_DESC descResource;
 		descResource.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
 		descResource.Alignment = 0;
@@ -561,10 +535,10 @@ bool setupResource()
 		descResource.Flags = D3D12_RESOURCE_FLAG_NONE;
 
 		hr = g_pDevice->CreateCommittedResource(
-			&heapPropaty,
+			&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),//&heapPropaty,
 			D3D12_HEAP_FLAG_NONE,
 			&descResource,
-			D3D12_RESOURCE_STATE_GENERIC_READ,
+			D3D12_RESOURCE_STATE_COPY_DEST,
 			nullptr,
 			IID_PPV_ARGS(&g_pTextureResource));
 
@@ -573,25 +547,35 @@ bool setupResource()
 			return false;
 		}
 
-		// 実際のテクスチャデータを作成
-		UINT rowPitch = (width * 32 + 7) / 8;	// 画像幅をBPPでかけて8ビットの要素が何個あるか計算する
-		UINT depthPitch = rowPitch * height;	// データの大きさ
-		hr = g_pTextureResource->WriteToSubresource(0, nullptr, pixels, rowPitch, depthPitch);
+		// GPUアップロードバッファを作成
+		Microsoft::WRL::ComPtr<ID3D12Resource> textureUploadHeap;
 
-		if(showErrorMessage(hr, TEXT("テクスチャ書き込み失敗")))
+		hr = g_pDevice->CreateCommittedResource(
+			&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
+			D3D12_HEAP_FLAG_NONE,
+			&CD3DX12_RESOURCE_DESC::Buffer(GetRequiredIntermediateSize(g_pTextureResource, 0, 1)),
+			D3D12_RESOURCE_STATE_GENERIC_READ,
+			nullptr,
+			IID_PPV_ARGS(&textureUploadHeap));
+
+		if(showErrorMessage(hr, TEXT("GPUアップロードバッファを作成失敗")))
 		{
 			return false;
 		}
 
-		// シェーダリソースビューとして関連付け
-		g_hTexure = g_pDescripterHeapArray[DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV]->GetCPUDescriptorHandleForHeapStart();
-		g_hGPUTexture = g_pDescripterHeapArray[DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV]->GetGPUDescriptorHandleForHeapStart();
+		// 実際のテクスチャデータを作成
+		D3D12_SUBRESOURCE_DATA textureData = {};
+		textureData.pData = &pixels[0];
+		textureData.RowPitch = width * 4;	// 幅×ピクセルのバイト数
+		textureData.SlicePitch = textureData.RowPitch * height;
 
-		//g_pDevice->CreateShaderResourceView(g_pTextureResource, nullptr, g_hTexure);
+		UpdateSubresources(g_pGraphicsCommandList, g_pTextureResource, textureUploadHeap.Get(), 0, 0, 1, &textureData);
+		g_pGraphicsCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(g_pTextureResource, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE));
 
 		// いらないもの解放
 		stbi_image_free(pixels);
 	}
+#endif
 
 	return true;
 }
@@ -647,47 +631,47 @@ void Render()
 
 #if defined(RESOURCE_SETUP)
 
-	// コンスタントバッファ更新
-	using namespace DirectX;
+	//// コンスタントバッファ更新
+	//using namespace DirectX;
 
-	XMMATRIX view = XMMatrixLookAtLH(
-		XMLoadFloat3(&XMFLOAT3(0, 0, -5)),
-		XMLoadFloat3(&XMFLOAT3(0, 0, 0)),
-		XMLoadFloat3(&XMFLOAT3(0, 1, 0)));
+	//XMMATRIX view = XMMatrixLookAtLH(
+	//	XMLoadFloat3(&XMFLOAT3(0, 0, -5)),
+	//	XMLoadFloat3(&XMFLOAT3(0, 0, 0)),
+	//	XMLoadFloat3(&XMFLOAT3(0, 1, 0)));
 
-	XMMATRIX proj = XMMatrixPerspectiveFovLH(
-		XMConvertToRadians(60),
-		static_cast<float>(SCREEN_WIDTH) / static_cast<float>(SCREEN_HEIGHT),
-		1,
-		1000);
+	//XMMATRIX proj = XMMatrixPerspectiveFovLH(
+	//	XMConvertToRadians(60),
+	//	static_cast<float>(SCREEN_WIDTH) / static_cast<float>(SCREEN_HEIGHT),
+	//	1,
+	//	1000);
 
-	static XMFLOAT3 rotation(0, 0, 0);
-	rotation.x = fmod(rotation.x + 1.f, 360.f);
-	rotation.y = fmod(rotation.y + 2.f, 360.f);
-	rotation.z = fmod(rotation.z + 3.f, 360.f);
+	//static XMFLOAT3 rotation(0, 0, 0);
+	//rotation.x = fmod(rotation.x + 1.f, 360.f);
+	//rotation.y = fmod(rotation.y + 2.f, 360.f);
+	//rotation.z = fmod(rotation.z + 3.f, 360.f);
 
-	XMMATRIX world = XMMatrixRotationRollPitchYaw(
-		XMConvertToRadians(rotation.x),
-		XMConvertToRadians(rotation.y),
-		XMConvertToRadians(rotation.z));
+	//XMMATRIX world = XMMatrixRotationRollPitchYaw(
+	//	XMConvertToRadians(rotation.x),
+	//	XMConvertToRadians(rotation.y),
+	//	XMConvertToRadians(rotation.z));
 
-	g_ConstantBufferData._WVP = XMMatrixTranspose(world * view * proj);
+	//g_ConstantBufferData._WVP = XMMatrixTranspose(world * view * proj);
 
-	UINT8* dataBegin;
-	if(SUCCEEDED(g_pConstantBufferResource->Map(0, nullptr, reinterpret_cast<void**>(&dataBegin))))
-	{
-		memcpy(dataBegin, &g_ConstantBufferData, sizeof(g_ConstantBufferData));
-		g_pConstantBufferResource->Unmap(0, nullptr);
-	}
-	else
-	{
-		showErrorMessage(S_FALSE, TEXT("コンスタントバッファのマップに失敗しました"));
-	}
+	//UINT8* dataBegin;
+	//if(SUCCEEDED(g_pConstantBufferResource->Map(0, nullptr, reinterpret_cast<void**>(&dataBegin))))
+	//{
+	//	memcpy(dataBegin, &g_ConstantBufferData, sizeof(g_ConstantBufferData));
+	//	g_pConstantBufferResource->Unmap(0, nullptr);
+	//}
+	//else
+	//{
+	//	showErrorMessage(S_FALSE, TEXT("コンスタントバッファのマップに失敗しました"));
+	//}
 
-	// コンスタントバッファを設定
-	ID3D12DescriptorHeap* pHeaps[] = { g_pDescripterHeapArray[DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV] };
-	pCommand->SetDescriptorHeaps(ARRAYSIZE(pHeaps), pHeaps);
-	pCommand->SetGraphicsRootDescriptorTable(0, g_pDescripterHeapArray[DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV]->GetGPUDescriptorHandleForHeapStart());
+	//// コンスタントバッファを設定
+	//ID3D12DescriptorHeap* pHeaps[] = { g_pDescripterHeapArray[DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV] };
+	//pCommand->SetDescriptorHeaps(ARRAYSIZE(pHeaps), pHeaps);
+	//pCommand->SetGraphicsRootDescriptorTable(0, g_pDescripterHeapArray[DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV]->GetGPUDescriptorHandleForHeapStart());
 
 	// 板ポリゴン描画
 	pCommand->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
