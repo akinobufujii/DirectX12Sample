@@ -338,8 +338,7 @@ bool initDirectX(HWND hWnd)
 	descPSO.PS = { reinterpret_cast<BYTE*>(g_pPSBlob->GetBufferPointer()), g_pPSBlob->GetBufferSize() };	// ピクセルシェーダ設定
 	descPSO.RasterizerState = descRasterizer;																// ラスタライザ設定
 	descPSO.BlendState = descBlend;																			// ブレンド設定
-	descPSO.DepthStencilState.DepthEnable = FALSE;															// 深度バッファ有効設定
-	descPSO.DepthStencilState.StencilEnable = FALSE;														// ステンシルバッファ有効設定
+	descPSO.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);									// ステンシルバッファ有効設定
 	descPSO.SampleMask = UINT_MAX;																			// サンプルマスク設定
 	descPSO.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;									// プリミティブタイプ	
 	descPSO.NumRenderTargets = 1;																			// レンダーターゲット数
