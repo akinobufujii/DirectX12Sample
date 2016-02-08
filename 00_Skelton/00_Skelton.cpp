@@ -3,11 +3,6 @@
 //==============================================================================
 #include "../libs/akilib/include/D3D12Helper.h"
 
-/*
-ドキュメントにはあるって書いているのにない拡張ライブラリ
-https://msdn.microsoft.com/en-us/library/dn708058(v=vs.85).aspx
-#include <d3dx12.h>
-*/
 #include <Dxgi1_4.h>
 #include <D3d12SDKLayers.h>
 
@@ -54,6 +49,26 @@ UINT						g_CurrentBuckBufferIndex = 0;						// 現在のバックバッファ
 ID3D12Resource*				g_pBackBufferResource[BACKBUFFER_COUNT];			// バックバッファのリソース
 D3D12_CPU_DESCRIPTOR_HANDLE	g_hBackBuffer[BACKBUFFER_COUNT];					// バックバッファハンドル
 
+// フレーム待ち
+void waitForPreviousFrame()
+{
+	const UINT64 FENCE_INDEX = g_CurrentFenceIndex;
+	g_pCommandQueue->Signal(g_pFence, FENCE_INDEX);
+	g_CurrentFenceIndex++;
+
+	if(g_pFence->GetCompletedValue() < FENCE_INDEX)
+	{
+		g_pFence->SetEventOnCompletion(FENCE_INDEX, g_hFenceEvent);
+		WaitForSingleObject(g_hFenceEvent, INFINITE);
+	}
+}
+
+// パイプラインの初期化
+bool initPipeline()
+{
+	return true;
+}
+
 // DirectX初期化
 bool initDirectX(HWND hWnd)
 {
@@ -62,15 +77,11 @@ bool initDirectX(HWND hWnd)
 #if _DEBUG
 	// デバッグレイヤー作成
 	hr = D3D12GetDebugInterface(IID_PPV_ARGS(&g_pDebug));
-	if(showErrorMessage(hr, TEXT("デバッグレイヤー作成失敗")))
-	{
-		return false;
-	}
-	if(g_pDebug)
+	if(SUCCEEDED(hr) && g_pDebug)
 	{
 		g_pDebug->EnableDebugLayer();
+		GIFlag = DXGI_CREATE_FACTORY_DEBUG;
 	}
-	GIFlag = DXGI_CREATE_FACTORY_DEBUG;
 #endif
 
 	// GIファクトリ獲得
@@ -101,27 +112,16 @@ bool initDirectX(HWND hWnd)
 		return false;
 	}
 
-	// コマンドアロケータ作成
-	hr = g_pDevice->CreateCommandAllocator(
-		D3D12_COMMAND_LIST_TYPE_DIRECT,
-		IID_PPV_ARGS(&g_pCommandAllocator));
-
-	if(showErrorMessage(hr, TEXT("コマンドアロケータ作成失敗")))
-	{
-		hr = g_pDevice->GetDeviceRemovedReason();
-		return false;
-	}
-
 	// コマンドキュー作成
 	// ドキュメントにある以下のようなメソッドはなかった
 	//g_pDevice->GetDefaultCommandQueue(&g_pCommandQueue);
-	D3D12_COMMAND_QUEUE_DESC commandQueueDesk;
-	commandQueueDesk.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;	// コマンドリストタイプ
-	commandQueueDesk.Priority = 0;							// 優先度
-	commandQueueDesk.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;	// フラグ
-	commandQueueDesk.NodeMask = 0x00000000;					// ノードマスク
+	D3D12_COMMAND_QUEUE_DESC descCommandQueue = {};
+	descCommandQueue.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;	// コマンドリストタイプ
+	descCommandQueue.Priority = 0;							// 優先度
+	descCommandQueue.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;	// フラグ
+	descCommandQueue.NodeMask = 0x00000000;					// ノードマスク
 
-	hr = g_pDevice->CreateCommandQueue(&commandQueueDesk, IID_PPV_ARGS(&g_pCommandQueue));
+	hr = g_pDevice->CreateCommandQueue(&descCommandQueue, IID_PPV_ARGS(&g_pCommandQueue));
 
 	if(showErrorMessage(hr, TEXT("コマンドキュー作成失敗")))
 	{
@@ -131,21 +131,47 @@ bool initDirectX(HWND hWnd)
 	// スワップチェーンを作成
 	// ここはDirectX11とあまり変わらない
 	// 参考URL:https://msdn.microsoft.com/en-us/library/dn859356(v=vs.85).aspx
-	DXGI_SWAP_CHAIN_DESC descSwapChain;
-	ZeroMemory(&descSwapChain, sizeof(descSwapChain));
+	DXGI_SWAP_CHAIN_DESC1 descSwapChain = {};
 	descSwapChain.BufferCount = BACKBUFFER_COUNT;					// バックバッファは2枚以上ないと失敗する
-	descSwapChain.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+	descSwapChain.Width = SCREEN_WIDTH;
+	descSwapChain.Height = SCREEN_HEIGHT;
+	descSwapChain.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
 	descSwapChain.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
 	descSwapChain.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
-	descSwapChain.OutputWindow = hWnd;
 	descSwapChain.SampleDesc.Count = 1;
-	descSwapChain.Windowed = TRUE;
-
+	
 	// デバイスじゃなくてコマンドキューを渡す
 	// でないと実行時エラーが起こる
-	hr = g_pGIFactory->CreateSwapChain(g_pCommandQueue, &descSwapChain, reinterpret_cast<IDXGISwapChain**>(&g_pGISwapChain));
+	hr = g_pGIFactory->CreateSwapChainForHwnd(
+		g_pCommandQueue,
+		hWnd,
+		&descSwapChain,
+		nullptr,
+		nullptr,
+		reinterpret_cast<IDXGISwapChain1**>(&g_pGISwapChain));
 	if(showErrorMessage(hr, TEXT("スワップチェーン作成失敗")))
 	{
+		return false;
+	}
+
+	// ALT+ENTERでフルスクリーン化しないようにする
+	hr = g_pGIFactory->MakeWindowAssociation(hWnd, DXGI_MWA_NO_ALT_ENTER);
+	if(showErrorMessage(hr, TEXT("DXGIにメッセージキューの監視許可を与えるのに失敗")))
+	{
+		return false;
+	}
+
+	// バックバッファのインデックスを獲得
+	g_CurrentBuckBufferIndex = g_pGISwapChain->GetCurrentBackBufferIndex();
+
+	// コマンドアロケータ作成
+	hr = g_pDevice->CreateCommandAllocator(
+		D3D12_COMMAND_LIST_TYPE_DIRECT,
+		IID_PPV_ARGS(&g_pCommandAllocator));
+
+	if(showErrorMessage(hr, TEXT("コマンドアロケータ作成失敗")))
+	{
+		hr = g_pDevice->GetDeviceRemovedReason();
 		return false;
 	}
 
@@ -216,12 +242,18 @@ bool initDirectX(HWND hWnd)
 	// フェンスイベントハンドル作成
 	g_hFenceEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
 
+	// コマンドキューの処理を待つ
+	waitForPreviousFrame();
+
 	return true;
 }
 
 // DirectX12クリーンアップ
 void cleanupDirectX()
 {
+	// コマンドキューの処理を待つ
+	waitForPreviousFrame();
+
 	CloseHandle(g_hFenceEvent);
 	safeRelease(g_pFence);
 	for(UINT i = 0; i < BACKBUFFER_COUNT; ++i)
@@ -291,15 +323,7 @@ void Render()
 	g_pGISwapChain->Present(1, 0);
 
 	// コマンドキューの処理を待つ
-	const UINT64 FENCE_INDEX = g_CurrentFenceIndex;
-	g_pCommandQueue->Signal(g_pFence, FENCE_INDEX);
-	g_CurrentFenceIndex++;
-
-	if(g_pFence->GetCompletedValue() < FENCE_INDEX)
-	{
-		g_pFence->SetEventOnCompletion(FENCE_INDEX, g_hFenceEvent);
-		WaitForSingleObject(g_hFenceEvent, INFINITE);
-	}
+	waitForPreviousFrame();
 
 	// コマンドアロケータとコマンドリストをリセット
 	g_pCommandAllocator->Reset();
