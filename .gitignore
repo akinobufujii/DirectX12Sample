@@ -56,6 +56,10 @@ dlldata.c
 *.pidb
 *.svclog
 *.scc
+*.db
+*.opendb
+*.db-shm
+*.db-wal
 
 # Chutzpah Test files
 _Chutzpah*
