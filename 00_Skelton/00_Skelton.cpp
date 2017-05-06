@@ -52,12 +52,6 @@ void waitForPreviousFrame()
 	g_currentBuckBufferIndex = g_pDXGISwapChain->GetCurrentBackBufferIndex();
 }
 
-// パイプラインの初期化
-bool initPipeline()
-{
-	return true;
-}
-
 // DirectX初期化
 bool initDirectX(HWND hWnd)
 {
@@ -251,14 +245,11 @@ void renderFrame()
 	// アプリ側はフェンスを使ってGPU実行状況を判断する必要がある
 	g_pCommandAllocator->Reset();
 
-	// 現在のコマンドリストを獲得
-	ID3D12GraphicsCommandList* pCommand = g_pGraphicsCommandList;
-
 	// コマンドリストをリセット
-	pCommand->Reset(g_pCommandAllocator, nullptr);
+	g_pGraphicsCommandList->Reset(g_pCommandAllocator, nullptr);
 
 	// バックバッファがレンダーターゲットとして使用されるかもしれないので、バリアを張る
-	pCommand->ResourceBarrier(
+	g_pGraphicsCommandList->ResourceBarrier(
 		1,
 		&CD3DX12_RESOURCE_BARRIER::Transition(
 			g_pBackBufferResource[g_currentBuckBufferIndex],
@@ -276,21 +267,22 @@ void renderFrame()
 	static float count = 0;
 	count = fmod(count + 0.01f, 1.0f);
 	float clearColor[] = {count, 0.2f, 0.4f, 1.0f};
-	pCommand->ClearRenderTargetView(hRenderTargetView, clearColor, 0, nullptr);
+	g_pGraphicsCommandList->ClearRenderTargetView(hRenderTargetView, clearColor, 0, nullptr);
 
-	// Indicate that the back buffer will now be used to present.
-	pCommand->ResourceBarrier(
+	// 即座にバックバッファに反映
+	g_pGraphicsCommandList->ResourceBarrier(
 		1,
 		&CD3DX12_RESOURCE_BARRIER::Transition(
 			g_pBackBufferResource[g_currentBuckBufferIndex],
 			D3D12_RESOURCE_STATE_RENDER_TARGET,
-			D3D12_RESOURCE_STATE_PRESENT));
+			D3D12_RESOURCE_STATE_PRESENT)
+	);
 
 	// コマンド記憶終了
-	pCommand->Close();
+	g_pGraphicsCommandList->Close();
 
 	// 描画コマンドを実行してフリップ
-	ID3D12CommandList* pCommandListArray[] = { pCommand };
+	ID3D12CommandList* pCommandListArray[] = { g_pGraphicsCommandList };
 	g_pCommandQueue->ExecuteCommandLists(_countof(pCommandListArray), pCommandListArray);
 	g_pDXGISwapChain->Present(1, 0);
 
