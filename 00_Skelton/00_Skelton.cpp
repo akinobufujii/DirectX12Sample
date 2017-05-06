@@ -30,7 +30,6 @@ ID3D12Resource*				g_pBackBufferResource[BACKBUFFER_COUNT];	// バックバッ�
 ID3D12GraphicsCommandList*	g_pGraphicsCommandList;						// 描画コマンドリスト
 ID3D12Fence*				g_pFence;									// フェンスオブジェクト
 HANDLE						g_hFenceEvent;								// フェンスイベントハンドル
-D3D12_VIEWPORT				g_viewPort;									// ビューポート
 
 UINT						g_currentBuckBufferIndex = 0;				// 現在のバックバッファ
 UINT						g_renderTargetViewHeapSize = 0;				// レンダーターゲットビューのヒープサイズ
@@ -212,17 +211,6 @@ bool initDirectX(HWND hWnd)
 
 	// フェンスイベントハンドル作成
 	g_hFenceEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
-
-	// ビューポート設定
-	g_viewPort.TopLeftX = 0;			// X座標
-	g_viewPort.TopLeftY = 0;			// Y座標
-	g_viewPort.Width = SCREEN_WIDTH;	// 幅
-	g_viewPort.Height = SCREEN_HEIGHT;	// 高さ
-	g_viewPort.MinDepth = 0.0f;			// 最少深度
-	g_viewPort.MaxDepth = 1.0f;			// 最大深度
-
-	// コマンドキューの処理を待つ
-	waitForPreviousFrame();
 
 	return true;
 }
