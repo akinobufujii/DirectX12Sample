@@ -6,6 +6,8 @@
 #include <Dxgi1_4.h>
 #include <D3d12SDKLayers.h>
 #include <DirectXMath.h>
+#include <fstream>
+#include <memory>
 
 //==============================================================================
 // 定義
@@ -26,9 +28,9 @@ static const int SCREEN_HEIGHT = 720;					// 画面高さ
 static const LPTSTR	CLASS_NAME = TEXT("01_Triangle");	// ウィンドウネーム
 static const UINT BACKBUFFER_COUNT = 2;					// バックバッファ数
 
-														//==============================================================================
-														// グローバル変数
-														//==============================================================================
+//==============================================================================
+// グローバル変数
+//==============================================================================
 #if _DEBUG
 ID3D12Debug*				g_pDebug;									// デバッグオブジェクト
 #endif
@@ -52,7 +54,7 @@ UINT						g_currentBuckBufferIndex = 0;				// 現在のバックバッファ
 UINT						g_renderTargetViewHeapSize = 0;				// レンダーターゲットビューのヒープサイズ
 UINT64						g_currentFenceIndex = 0ULL;					// 現在のフェンスインデックス
 
-																		// フレーム待ち
+// フレーム待ち
 void waitForPreviousFrame()
 {
 	const UINT64 FENCE_INDEX = g_currentFenceIndex;
@@ -221,17 +223,43 @@ bool initDirectX(HWND hWnd)
 	safeRelease(pSignature);
 	safeRelease(pError);
 
-	// シェーダーコンパイル
-	// TODO: シェーダーファイルをプリコンパイルしたい
-	ID3DBlob* pVertexShader = nullptr;
-	ID3DBlob* pPixelShader = nullptr;
+#define PRECOMPILE_SHADER 1	// シェーダをプリコンパイルするか
+	// シェーダーオブジェクト取得
+	D3D12_SHADER_BYTECODE vertexShader = {};
+	D3D12_SHADER_BYTECODE pixelShader = {};
 
-#if defined(_DEBUG)
-	// デバッグ時はシェーダコンパイラのデバッグツールを有効化して、最適化しない
-	UINT compileFlags = D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION;
+#if PRECOMPILE_SHADER
+	// プリコンパイルバージョン
+	auto readBinaryData = [](const std::wstring& datapath) -> D3D12_SHADER_BYTECODE
+	{
+		std::ifstream ifs(datapath, std::ios::binary);
+		if(ifs.is_open())
+		{
+			//終端までシーク
+			ifs.seekg(0, std::ios::end);
+
+			D3D12_SHADER_BYTECODE data;
+
+			data.BytecodeLength = ifs.tellg();
+
+			// データ読み込む
+			ifs.seekg(0, std::ios::beg);
+			char* buffer = new char[data.BytecodeLength];
+			ifs.read(buffer, data.BytecodeLength);
+			data.pShaderBytecode = buffer;
+
+			return data;
+		}
+
+		return {};
+	};
+
+	vertexShader = readBinaryData(L"VertexShader.cso");
+	pixelShader = readBinaryData(L"PixelShader.cso");
 #else
-	UINT compileFlags = 0;
-#endif
+	// シェーダーコンパイル
+	Microsoft::WRL::ComPtr<ID3DBlob> pVertexShader = nullptr;
+	Microsoft::WRL::ComPtr<ID3DBlob> pPixelShader = nullptr;
 
 	// 頂点シェーダコンパイル
 	if(compileShaderFlomFile(L"VertexShader.hlsl", "main", "vs_5_0", &pVertexShader) == false)
@@ -247,6 +275,10 @@ bool initDirectX(HWND hWnd)
 		return false;
 	}
 
+	vertexShader = CD3DX12_SHADER_BYTECODE(pVertexShader.Get());
+	pixelShader = CD3DX12_SHADER_BYTECODE(pPixelShader.Get());
+#endif
+
 	// 入力レイアウト
 	const D3D12_INPUT_ELEMENT_DESC INPUT_LAYOUT[] =
 	{
@@ -259,8 +291,8 @@ bool initDirectX(HWND hWnd)
 	D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
 	psoDesc.InputLayout = {INPUT_LAYOUT, _countof(INPUT_LAYOUT)};
 	psoDesc.pRootSignature = g_pRootSignature;
-	psoDesc.VS = CD3DX12_SHADER_BYTECODE(pVertexShader);
-	psoDesc.PS = CD3DX12_SHADER_BYTECODE(pPixelShader);
+	psoDesc.VS = vertexShader;
+	psoDesc.PS = pixelShader;
 	psoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
 	psoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
 	psoDesc.DepthStencilState.DepthEnable = FALSE;
@@ -275,8 +307,15 @@ bool initDirectX(HWND hWnd)
 	{
 		return false;
 	}
-	safeRelease(pVertexShader);
-	safeRelease(pPixelShader);
+
+#if PRECOMPILE_SHADER
+	// 本来はもとのデータ型に戻さないとデストラクタが走らないので危ないコード
+	delete(vertexShader.pShaderBytecode);
+	vertexShader.pShaderBytecode = nullptr;
+
+	delete(pixelShader.pShaderBytecode);
+	pixelShader.pShaderBytecode = nullptr;
+#endif
 
 	// 頂点バッファ作成
 	UserVertex vertex[] =
@@ -480,6 +519,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 // エントリーポイント
 int APIENTRY _tWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPTSTR lpCmdLine, int nCmdShow)
 {
+	std::locale::global(std::locale("japanese"));
+
 	HWND hwnd;
 	MSG msg;
 	WNDCLASS winc;
