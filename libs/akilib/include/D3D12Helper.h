@@ -48,6 +48,13 @@ void safeRelease(T*& object)
 // シェーダコンパイル
 bool compileShaderFlomFile(LPCWSTR pFileName, LPCSTR pEntrypoint, LPCSTR pTarget, ID3DBlob** ppblob)
 {
+#if defined(_DEBUG)
+	// デバッグ時はシェーダコンパイラのデバッグツールを有効化して、最適化しない
+	UINT compileFlags = D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION;
+#else
+	UINT compileFlags = 0;
+#endif
+
 	// シェーダコンパイル
 	HRESULT hr;
 	LPD3DBLOB pError = nullptr;
